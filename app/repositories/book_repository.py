@@ -1,3 +1,4 @@
+
 from app.database.connection import get_connection
 from app.models.book import Book
 
@@ -6,6 +7,7 @@ class BookRepository:
     def _row_to_book(self, row: dict | None) -> Book | None:
         if not row:
             return None
+
         return Book(
             book_id=row["bookID"],
             title=row["title"],
@@ -20,10 +22,12 @@ class BookRepository:
     def get_all(self) -> list[Book]:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
+
         try:
             cursor.execute("SELECT * FROM books ORDER BY bookID ASC")
             rows = cursor.fetchall()
             return [self._row_to_book(row) for row in rows]
+
         finally:
             cursor.close()
             conn.close()
@@ -31,9 +35,14 @@ class BookRepository:
     def get_by_id(self, book_id: int) -> Book | None:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
+
         try:
-            cursor.execute("SELECT * FROM books WHERE bookID = %s", (book_id,))
+            cursor.execute(
+                "SELECT * FROM books WHERE bookID = %s",
+                (book_id,)
+            )
             return self._row_to_book(cursor.fetchone())
+
         finally:
             cursor.close()
             conn.close()
@@ -41,8 +50,10 @@ class BookRepository:
     def search(self, keyword: str) -> list[Book]:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
+
         try:
             like_kw = f"%{keyword}%"
+
             query = """
                 SELECT * FROM books
                 WHERE title LIKE %s
@@ -51,9 +62,15 @@ class BookRepository:
                    OR CAST(bookID AS CHAR) LIKE %s
                 ORDER BY bookID ASC
             """
-            cursor.execute(query, (like_kw, like_kw, like_kw, like_kw))
+
+            cursor.execute(
+                query,
+                (like_kw, like_kw, like_kw, like_kw)
+            )
+
             rows = cursor.fetchall()
             return [self._row_to_book(row) for row in rows]
+
         finally:
             cursor.close()
             conn.close()
@@ -61,11 +78,21 @@ class BookRepository:
     def create(self, book: Book) -> Book:
         conn = get_connection()
         cursor = conn.cursor()
+
         try:
             query = """
-                INSERT INTO books (title, author, category, publisher, publication_year, status, quantity)
+                INSERT INTO books (
+                    title,
+                    author,
+                    category,
+                    publisher,
+                    publication_year,
+                    status,
+                    quantity
+                )
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
+
             values = (
                 book.title,
                 book.author,
@@ -75,13 +102,17 @@ class BookRepository:
                 book.status,
                 book.quantity
             )
+
             cursor.execute(query, values)
             conn.commit()
+
             book.book_id = cursor.lastrowid
             return book
-        except Exception as e:
+
+        except Exception:
             conn.rollback()
-            raise e
+            raise
+
         finally:
             cursor.close()
             conn.close()
@@ -89,6 +120,7 @@ class BookRepository:
     def update(self, book: Book) -> bool:
         conn = get_connection()
         cursor = conn.cursor()
+
         try:
             query = """
                 UPDATE books
@@ -101,6 +133,7 @@ class BookRepository:
                     quantity = %s
                 WHERE bookID = %s
             """
+
             values = (
                 book.title,
                 book.author,
@@ -111,12 +144,16 @@ class BookRepository:
                 book.quantity,
                 book.book_id
             )
+
             cursor.execute(query, values)
             conn.commit()
+
             return cursor.rowcount > 0
-        except Exception as e:
+
+        except Exception:
             conn.rollback()
-            raise e
+            raise
+
         finally:
             cursor.close()
             conn.close()
@@ -124,10 +161,16 @@ class BookRepository:
     def has_borrowing_records(self, book_id: int) -> bool:
         conn = get_connection()
         cursor = conn.cursor()
+
         try:
-            cursor.execute("SELECT COUNT(*) FROM borrowing_details WHERE bookID = %s", (book_id,))
+            cursor.execute(
+                "SELECT COUNT(*) FROM borrowing_details WHERE bookID = %s",
+                (book_id,)
+            )
+
             count = cursor.fetchone()[0]
             return count > 0
+
         finally:
             cursor.close()
             conn.close()
@@ -135,13 +178,20 @@ class BookRepository:
     def delete(self, book_id: int) -> bool:
         conn = get_connection()
         cursor = conn.cursor()
+
         try:
-            cursor.execute("DELETE FROM books WHERE bookID = %s", (book_id,))
+            cursor.execute(
+                "DELETE FROM books WHERE bookID = %s",
+                (book_id,)
+            )
+
             conn.commit()
             return cursor.rowcount > 0
-        except Exception as e:
+
+        except Exception:
             conn.rollback()
-            raise e
+            raise
+
         finally:
             cursor.close()
             conn.close()
