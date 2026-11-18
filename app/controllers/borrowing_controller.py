@@ -142,3 +142,14 @@ class BorrowingController:
             return self._error("Unable to confirm the return. Please contact the library administrator.")
         except Exception:
             return self._error("An unexpected error occurred.")
+
+    def get_all_borrowing_records(self) -> dict:
+        try:
+            data = self.service.get_all_borrowing_records(self.current_user)
+            return self._success("Borrowing records loaded successfully.", data)
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error("Unable to load borrowing records. Please contact the library administrator.")
+        except Exception:
+            return self._error("An unexpected error occurred.")

@@ -509,3 +509,11 @@ class BorrowingService:
             raise
         finally:
             conn.close()
+
+    def get_all_borrowing_records(self, current_user) -> list:
+        records = self._get_admin_records(None, current_user)
+        return sorted(
+            records,
+            key=lambda row: (row["borrow_date"], row["borrowing_id"]),
+            reverse=True,
+        )
