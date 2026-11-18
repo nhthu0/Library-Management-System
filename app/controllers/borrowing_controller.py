@@ -72,3 +72,17 @@ class BorrowingController:
             )
         except Exception:
             return self._error("An unexpected error occurred.")
+
+    def get_my_borrowing_history(self) -> dict:
+        try:
+            data = self.service.get_my_borrowing_history(self.current_user)
+            return self._success("Borrowing history loaded successfully.", data)
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error(
+                "Unable to load borrowing history. "
+                "Please contact the library administrator."
+            )
+        except Exception:
+            return self._error("An unexpected error occurred.")

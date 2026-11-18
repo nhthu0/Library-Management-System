@@ -219,3 +219,52 @@ class BorrowingService:
             raise
         finally:
             conn.close()
+
+    def get_my_borrowing_history(self, current_user) -> list:
+        user_id = self._require_reader(current_user)
+        conn = self._get_connection()
+        try:
+            conn.start_transaction(readonly=True)
+            reader = self.borrowing_repo.get_reader_profile(user_id, conn)
+            if not reader or str(reader.get("role", "")).upper() != "READER":
+                raise PermissionError("Reader account not found.")
+            if str(reader.get("account_status", "")).upper() != "ACTIVE":
+                raise PermissionError("Reader account is locked or inactive.")
+
+            rows = self.borrowing_repo.get_reader_history_rows(reader["reader_id"], conn)
+            records = {}
+            for row in rows:
+                borrowing_id = int(row["borrowing_id"])
+                if borrowing_id not in records:
+                    records[borrowing_id] = {
+                        "borrowing_id": borrowing_id,
+                        "reader_id": int(row["reader_id"]),
+                        "borrow_date": str(row["borrow_date"]),
+                        "due_date": str(row["due_date"]),
+                        "return_date": (
+                            str(row["return_date"])
+                            if row["return_date"] is not None else None
+                        ),
+                        "status": row["status"],
+                        "renewal_count": int(row["renewal_count"]),
+                        "quantity": 0,
+                        "returned_quantity": 0,
+                        "books": [],
+                    }
+                if row["book_id"] is not None:
+                    quantity = int(row["quantity"])
+                    returned = int(row["returned_quantity"])
+                    records[borrowing_id]["books"].append({
+                        "book_id": int(row["book_id"]),
+                        "title": row["title"], "author": row["author"],
+                        "quantity": quantity, "returned_quantity": returned,
+                    })
+                    records[borrowing_id]["quantity"] += quantity
+                    records[borrowing_id]["returned_quantity"] += returned
+            conn.commit()
+            return list(records.values())
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()

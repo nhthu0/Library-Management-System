@@ -203,3 +203,50 @@ class BorrowingRepository:
             return cursor.rowcount == 1
         finally:
             cursor.close()
+
+    def get_reader_profile(self, user_id: int, connection):
+        """Read the session owner's Reader profile without locking rows."""
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT r.readerID AS reader_id, u.role, u.account_status
+                FROM readers AS r
+                JOIN users AS u ON u.userID = r.userID
+                WHERE u.userID = %s
+                """,
+                (user_id,),
+            )
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+
+    def get_reader_history_rows(self, reader_id: int, connection) -> list:
+        """Return all loan states, grouping detail rows into book quantities."""
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT r.borrowingID AS borrowing_id,
+                       r.readerID AS reader_id,
+                       r.borrow_date, r.due_date, r.return_date,
+                       r.status, r.renewal_count,
+                       d.bookID AS book_id, b.title, b.author,
+                       COUNT(d.detailID) AS quantity,
+                       SUM(CASE WHEN d.return_date IS NOT NULL
+                                THEN 1 ELSE 0 END) AS returned_quantity
+                FROM borrowing_records AS r
+                LEFT JOIN borrowing_details AS d
+                    ON d.borrowingID = r.borrowingID
+                LEFT JOIN books AS b ON b.bookID = d.bookID
+                WHERE r.readerID = %s
+                GROUP BY r.borrowingID, r.readerID, r.borrow_date,
+                         r.due_date, r.return_date, r.status, r.renewal_count,
+                         d.bookID, b.title, b.author
+                ORDER BY r.borrow_date DESC, r.borrowingID DESC, d.bookID ASC
+                """,
+                (reader_id,),
+            )
+            return cursor.fetchall()
+        finally:
+            cursor.close()
