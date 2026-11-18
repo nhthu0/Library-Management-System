@@ -250,3 +250,109 @@ class BorrowingRepository:
             return cursor.fetchall()
         finally:
             cursor.close()
+
+    def get_admin_profile(self, user_id: int, connection):
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT a.adminID AS admin_id,
+                       u.role, u.account_status
+                FROM admins AS a
+                JOIN users AS u ON u.userID = a.userID
+                WHERE u.userID = %s
+                """,
+                (user_id,),
+            )
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+
+    def _fetch_approval(self, query, params, connection, many=False):
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query, params)
+            return cursor.fetchall() if many else cursor.fetchone()
+        finally:
+            cursor.close()
+
+    def get_borrowing_owner(self, borrowing_id: int, connection):
+        return self._fetch_approval(
+            """SELECT r.readerID AS reader_id, p.userID AS user_id
+               FROM borrowing_records AS r
+               JOIN readers AS p ON p.readerID = r.readerID
+               WHERE r.borrowingID = %s""",
+            (borrowing_id,), connection,
+        )
+
+    def get_request_books(self, borrowing_id: int, connection):
+        return self._fetch_approval(
+            """SELECT bookID AS book_id, COUNT(*) AS quantity,
+                      SUM(CASE WHEN return_date IS NOT NULL THEN 1 ELSE 0 END)
+                          AS returned_quantity
+               FROM borrowing_details WHERE borrowingID = %s
+               GROUP BY bookID ORDER BY bookID""",
+            (borrowing_id,), connection, many=True,
+        )
+
+    def lock_requested_books(self, book_ids, connection):
+        return {
+            book_id: self._fetch_approval(
+                "SELECT bookID AS book_id, status, quantity FROM books WHERE bookID = %s FOR UPDATE",
+                (book_id,), connection,
+            )
+            for book_id in sorted(set(book_ids))
+        }
+
+    def save_borrow_decision(
+        self, borrowing_id, reader_id, admin_id, status, borrow_date, due_date, connection
+    ) -> bool:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                """UPDATE borrowing_records
+                   SET status = %s, adminID = %s, borrow_date = %s, due_date = %s
+                   WHERE borrowingID = %s AND readerID = %s
+                     AND status = %s AND return_date IS NULL""",
+                (status, admin_id, borrow_date, due_date,
+                 borrowing_id, reader_id, "Pending"),
+            )
+            return cursor.rowcount == 1
+        finally:
+            cursor.close()
+
+    def get_admin_record_rows(self, status, connection):
+        return self._fetch_approval(
+            """
+            SELECT r.borrowingID AS borrowing_id, r.readerID AS reader_id,
+                   u.full_name AS reader_name, r.adminID AS admin_id,
+                   r.borrow_date, r.due_date, r.return_date, r.status,
+                   r.renewal_count, d.bookID AS book_id, b.title, b.author,
+                   COUNT(d.detailID) AS quantity,
+                   SUM(CASE WHEN d.return_date IS NOT NULL THEN 1 ELSE 0 END)
+                       AS returned_quantity
+            FROM borrowing_records AS r
+            JOIN readers AS p ON p.readerID = r.readerID
+            JOIN users AS u ON u.userID = p.userID
+            LEFT JOIN borrowing_details AS d ON d.borrowingID = r.borrowingID
+            LEFT JOIN books AS b ON b.bookID = d.bookID
+            WHERE (%s IS NULL OR r.status = %s)
+            GROUP BY r.borrowingID, r.readerID, u.full_name, r.adminID,
+                     r.borrow_date, r.due_date, r.return_date, r.status,
+                     r.renewal_count, d.bookID, b.title, b.author
+            ORDER BY r.borrow_date, r.borrowingID, d.bookID
+            """,
+            (status, status), connection, many=True,
+        )
+
+    def mark_exhausted_books(self, book_ids, connection):
+        if not book_ids:
+            return
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(
+                "UPDATE books SET status = %s WHERE bookID = %s",
+                [("Unavailable", book_id) for book_id in book_ids],
+            )
+        finally:
+            cursor.close()

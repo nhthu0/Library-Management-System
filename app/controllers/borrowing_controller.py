@@ -86,3 +86,32 @@ class BorrowingController:
             )
         except Exception:
             return self._error("An unexpected error occurred.")
+
+    def get_pending_borrow_requests(self) -> dict:
+        try:
+            data = self.service.get_pending_borrow_requests(self.current_user)
+            return self._success("Pending borrowing requests loaded successfully.", data)
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error("Unable to load borrowing requests. Please contact the library administrator.")
+        except Exception:
+            return self._error("An unexpected error occurred.")
+
+    def approve_borrow(self, borrowing_id: int) -> dict:
+        return self._borrow_decision(borrowing_id, True)
+
+    def reject_borrow(self, borrowing_id: int) -> dict:
+        return self._borrow_decision(borrowing_id, False)
+
+    def _borrow_decision(self, borrowing_id, approve):
+        try:
+            action = self.service.approve_borrow if approve else self.service.reject_borrow
+            data = action(borrowing_id, self.current_user)
+            return self._success("Borrowing request approved." if approve else "Borrowing request rejected.", data)
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error("Unable to process the borrowing request. Please contact the library administrator.")
+        except Exception:
+            return self._error("An unexpected error occurred.")
