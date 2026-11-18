@@ -122,3 +122,33 @@ class BorrowingRepository:
 
         finally:
             cursor.close()
+
+    def count_active_copies_for_book(self, book_id: int, connection=None) -> int:
+        """Count copies held by Readers until return confirmation."""
+        owns_connection = connection is None
+        conn = self._get_connection() if owns_connection else connection
+        cursor = None
+
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM borrowing_details AS d
+                JOIN borrowing_records AS r
+                    ON r.borrowingID = d.borrowingID
+                WHERE d.bookID = %s
+                  AND r.status IN (%s, %s)
+                  AND d.return_date IS NULL
+                """,
+                (book_id, "Borrowed", "ReturnRequested"),
+            )
+            return int(cursor.fetchone()[0])
+
+        finally:
+            try:
+                if cursor is not None:
+                    cursor.close()
+            finally:
+                if owns_connection:
+                    conn.close()

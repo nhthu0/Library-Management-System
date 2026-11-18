@@ -49,6 +49,7 @@ class FakeBorrowingRepository:
             "expiration_date": None,
         }
         self.active_quantity = 0
+        self.borrowed_copies = 0
         self.lookups = []
         self.counted_readers = []
         self.requests = []
@@ -60,10 +61,16 @@ class FakeBorrowingRepository:
         self.lookups.append(user_id)
         return self.reader
 
+    
+
     def count_active_books(self, reader_id, connection):
         assert connection is self.conn
         self.counted_readers.append(reader_id)
         return self.active_quantity
+
+    def count_active_copies_for_book(self, book_id, connection):
+        assert connection is self.conn
+        return self.borrowed_copies
 
     def create_pending_request(
         self,
@@ -340,3 +347,30 @@ def test_storage_failure_rolls_back_and_closes_connection(
     assert conn.closed
     assert not conn.committed
     assert books.book.quantity == 3
+
+@pytest.mark.parametrize("held, requested", [(3, 1), (2, 2), (4, 1)])
+def test_rejects_copies_currently_held_by_other_readers(setup, held, requested):
+    service, conn, books, borrowing, opened = setup
+    borrowing.borrowed_copies = held
+
+    with pytest.raises(ValueError):
+        service.request_borrow(
+            4, requested, {"user_id": 2, "role": "READER"}
+        )
+
+    assert not borrowing.requests
+    assert books.book.quantity == 3
+    assert conn.rolled_back and conn.closed
+
+
+def test_allows_exactly_remaining_copies(setup):
+    service, conn, books, borrowing, opened = setup
+    borrowing.borrowed_copies = 2
+
+    result = service.request_borrow(
+        4, 1, {"user_id": 2, "role": "READER"}
+    )
+
+    assert result["quantity"] == 1
+    assert books.book.quantity == 3
+    assert conn.committed and conn.closed
