@@ -163,3 +163,59 @@ class BorrowingService:
 
         finally:
             conn.close()
+
+    def request_return(self, borrowing_id: int, current_user) -> dict:
+        user_id = self._require_reader(current_user)
+        if type(borrowing_id) is not int or borrowing_id <= 0:
+            raise ValueError("Borrowing ID must be a positive integer.")
+
+        conn = self._get_connection()
+        try:
+            conn.start_transaction()
+            reader = self.borrowing_repo.get_reader_for_update(user_id, conn)
+            if not reader or str(reader.get("role", "")).upper() != "READER":
+                raise PermissionError("Reader account not found.")
+            if str(reader.get("account_status", "")).upper() != "ACTIVE":
+                raise PermissionError("Reader account is locked or inactive.")
+
+            # An expired membership must not prevent returning existing loans.
+            reader_id = reader["reader_id"]
+            record = self.borrowing_repo.get_own_borrowing_for_update(
+                borrowing_id, reader_id, conn
+            )
+            if record is None:
+                raise ValueError("Borrowing record not found for this Reader.")
+            if (
+                record["status"] != "Borrowed"
+                or record["return_date"] is not None
+                or record["quantity"] <= 0
+            ):
+                raise ValueError("This borrowing record cannot be requested for return.")
+
+            try:
+                due_date = date.fromisoformat(str(record["due_date"]))
+            except ValueError:
+                raise ValueError("Borrowing due date is invalid.") from None
+            days_overdue = max(0, (self._today() - due_date).days)
+
+            changed = self.borrowing_repo.mark_return_requested(
+                borrowing_id, reader_id, conn
+            )
+            if not changed:
+                raise ValueError("This borrowing record has changed. Please refresh.")
+
+            conn.commit()
+            return {
+                "borrowing_id": borrowing_id,
+                "reader_id": reader_id,
+                "quantity": record["quantity"],
+                "due_date": due_date.isoformat(),
+                "status": "ReturnRequested",
+                "return_date": None,
+                "days_overdue": days_overdue,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()

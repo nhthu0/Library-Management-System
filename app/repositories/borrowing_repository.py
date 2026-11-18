@@ -152,3 +152,54 @@ class BorrowingRepository:
             finally:
                 if owns_connection:
                     conn.close()
+
+    def get_own_borrowing_for_update(
+        self, borrowing_id: int, reader_id: int, connection
+    ):
+        """Lock a Reader's own record in the caller's transaction."""
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT borrowingID AS borrowing_id,
+                       readerID AS reader_id,
+                       borrow_date, due_date, return_date, status
+                FROM borrowing_records
+                WHERE borrowingID = %s AND readerID = %s
+                FOR UPDATE
+                """,
+                (borrowing_id, reader_id),
+            )
+            record = cursor.fetchone()
+            if record is not None:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS quantity
+                    FROM borrowing_details
+                    WHERE borrowingID = %s AND return_date IS NULL
+                    """,
+                    (borrowing_id,),
+                )
+                record["quantity"] = int(cursor.fetchone()["quantity"])
+            return record
+        finally:
+            cursor.close()
+
+    def mark_return_requested(
+        self, borrowing_id: int, reader_id: int, connection
+    ) -> bool:
+        """Change only a still-borrowed record; the caller commits or rolls back."""
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE borrowing_records
+                SET status = %s
+                WHERE borrowingID = %s AND readerID = %s
+                  AND status = %s AND return_date IS NULL
+                """,
+                ("ReturnRequested", borrowing_id, reader_id, "Borrowed"),
+            )
+            return cursor.rowcount == 1
+        finally:
+            cursor.close()

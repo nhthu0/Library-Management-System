@@ -53,3 +53,22 @@ class BorrowingController:
 
         except Exception:
             return self._error("An unexpected error occurred.")
+
+    def request_return(self, borrowing_id: int) -> dict:
+        try:
+            data = self.service.request_return(borrowing_id, self.current_user)
+            message = "Return request submitted. Please wait for Admin confirmation."
+            if data["days_overdue"] > 0:
+                message += (
+                    f" This loan is {data['days_overdue']} day(s) overdue."
+                )
+            return self._success(message, data)
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error(
+                "Unable to save the return request. "
+                "Please contact the library administrator."
+            )
+        except Exception:
+            return self._error("An unexpected error occurred.")
