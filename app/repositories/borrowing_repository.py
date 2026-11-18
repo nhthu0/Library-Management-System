@@ -356,3 +356,91 @@ class BorrowingRepository:
             )
         finally:
             cursor.close()
+
+    def get_return_details(self, borrowing_id, connection):
+        return self._fetch_approval(
+            """SELECT detailID AS detail_id, bookID AS book_id, return_date
+               FROM borrowing_details WHERE borrowingID = %s
+               ORDER BY detailID FOR UPDATE""",
+            (borrowing_id,), connection, many=True,
+        )
+
+    def complete_return(self, borrowing_id, admin_id, returned_on, quantity, connection):
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                """UPDATE borrowing_records
+                   SET status = %s, adminID = %s, return_date = %s
+                   WHERE borrowingID = %s AND status = %s AND return_date IS NULL""",
+                ("Returned", admin_id, returned_on, borrowing_id, "ReturnRequested"),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("This return request has changed. Please refresh.")
+            cursor.execute(
+                """UPDATE borrowing_details SET return_date = %s
+                   WHERE borrowingID = %s AND return_date IS NULL""",
+                (returned_on, borrowing_id),
+            )
+            if cursor.rowcount != quantity:
+                raise ValueError("Return details have changed. Please refresh.")
+        finally:
+            cursor.close()
+
+    def refresh_book_statuses(self, book_ids, connection):
+        # The service already holds these book locks until commit.
+        cursor = connection.cursor()
+        try:
+            for book_id in sorted(set(book_ids)):
+                cursor.execute(
+                    """UPDATE books SET status = CASE
+                         WHEN quantity > (
+                           SELECT COUNT(*) FROM borrowing_details AS d
+                           JOIN borrowing_records AS r ON r.borrowingID = d.borrowingID
+                           WHERE d.bookID = %s AND d.return_date IS NULL
+                             AND r.status IN (%s, %s)
+                         ) THEN %s ELSE %s END
+                       WHERE bookID = %s""",
+                    (book_id, "Borrowed", "ReturnRequested", "Available", "Unavailable", book_id),
+                )
+        finally:
+            cursor.close()
+
+    def save_overdue_fine(self, borrowing_id, amount, returned_on, admin_id, connection):
+        """Record only the overdue charge; preserve paid and unrelated fines.
+
+        This runs in the return transaction. TV5 can reuse it with the same
+        connection; its payment controller remains responsible for payment.
+        """
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """SELECT fineID, amount, payment_status FROM fines
+                   WHERE borrowingID = %s AND reason = %s ORDER BY fineID FOR UPDATE""",
+                (borrowing_id, "Overdue return"),
+            )
+            rows = cursor.fetchall()
+            paid = sum(row["amount"] for row in rows if row["payment_status"] == "Paid")
+            outstanding = max(0, amount - paid)
+            unpaid = [row for row in rows if row["payment_status"] == "Unpaid"]
+            if len(unpaid) > 1:
+                raise ValueError("Multiple overdue charges require administrator review.")
+            fine_id = rows[-1]["fineID"] if rows else None
+            if unpaid:
+                fine_id = unpaid[0]["fineID"]
+                cursor.execute(
+                    """UPDATE fines SET amount = %s, fine_date = %s, adminID = %s
+                       WHERE fineID = %s AND payment_status = %s""",
+                    (outstanding, returned_on, admin_id, fine_id, "Unpaid"),
+                )
+            elif outstanding:
+                cursor.execute(
+                    """INSERT INTO fines
+                       (borrowingID, amount, reason, fine_date, payment_status, adminID)
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (borrowing_id, outstanding, "Overdue return", returned_on, "Unpaid", admin_id),
+                )
+                fine_id = int(cursor.lastrowid)
+            return {"fine_id": fine_id, "fine_amount": int(amount),
+                    "unpaid_amount": float(outstanding)}
+        finally:
+            cursor.close()

@@ -197,6 +197,7 @@ class BorrowingService:
             except ValueError:
                 raise ValueError("Borrowing due date is invalid.") from None
             days_overdue = max(0, (self._today() - due_date).days)
+            estimated_fine = self._calculate_overdue_fine(days_overdue, record["quantity"])
 
             changed = self.borrowing_repo.mark_return_requested(
                 borrowing_id, reader_id, conn
@@ -213,6 +214,7 @@ class BorrowingService:
                 "status": "ReturnRequested",
                 "return_date": None,
                 "days_overdue": days_overdue,
+                "estimated_fine": estimated_fine,
             }
         except Exception:
             conn.rollback()
@@ -403,6 +405,104 @@ class BorrowingService:
                 "borrowing_id": borrowing_id, "reader_id": owner["reader_id"],
                 "admin_id": admin["admin_id"], "status": status,
                 "borrow_date": str(borrow_date), "due_date": str(deadline),
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _calculate_overdue_fine(days_overdue, quantity):
+        # Requirements: 2,000 VND per overdue day per book copy.
+        return max(0, days_overdue) * quantity * 2000
+
+    def _get_admin_records(self, status, current_user):
+        user_id = self._require_admin(current_user)
+        conn = self._get_connection()
+        try:
+            conn.start_transaction(readonly=True)
+            self._validate_admin_profile(self.borrowing_repo.get_admin_profile(user_id, conn))
+            records = self._group_admin_records(
+                self.borrowing_repo.get_admin_record_rows(status, conn)
+            )
+            conn.commit()
+            return records
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_pending_return_requests(self, current_user) -> list:
+        return self._get_admin_records("ReturnRequested", current_user)
+
+    def confirm_return(self, borrowing_id: int, current_user) -> dict:
+        user_id = self._require_admin(current_user)
+        if type(borrowing_id) is not int or borrowing_id <= 0:
+            raise ValueError("Borrowing ID must be a positive integer.")
+
+        conn = self._get_connection()
+        try:
+            conn.start_transaction(isolation_level="READ COMMITTED")
+            admin = self.borrowing_repo.get_admin_profile(user_id, conn)
+            self._validate_admin_profile(admin)
+            owner = self.borrowing_repo.get_borrowing_owner(borrowing_id, conn)
+            if owner is None:
+                raise ValueError("Borrowing record not found.")
+            # Keep the same lock order as approval: Reader, record, then books.
+            self.borrowing_repo.get_reader_for_update(owner["user_id"], conn)
+            record = self.borrowing_repo.get_own_borrowing_for_update(
+                borrowing_id, owner["reader_id"], conn
+            )
+            if (not record or record["status"] != "ReturnRequested"
+                    or record["return_date"] is not None or record["quantity"] <= 0):
+                raise ValueError("Only pending return requests can be confirmed.")
+
+            today = self._today()
+            try:
+                borrowed_on = date.fromisoformat(str(record["borrow_date"]))
+                due_date = date.fromisoformat(str(record["due_date"]))
+            except ValueError:
+                raise ValueError("Borrowing dates are invalid.") from None
+            if today < borrowed_on or due_date < borrowed_on:
+                raise ValueError("Borrowing dates are invalid.")
+
+            details = self.borrowing_repo.get_return_details(borrowing_id, conn)
+            book_ids = [row["book_id"] for row in details if row["return_date"] is None]
+            if len(book_ids) != record["quantity"]:
+                raise ValueError("Return details are invalid.")
+            books = self.borrowing_repo.lock_requested_books(book_ids, conn)
+            if any(book is None for book in books.values()):
+                raise ValueError("Book not found.")
+
+            # Charge every copy by its actual return date, including legacy partial returns.
+            amount = 0
+            for row in details:
+                try:
+                    returned_on = (today if row["return_date"] is None
+                                   else date.fromisoformat(str(row["return_date"])))
+                except ValueError:
+                    raise ValueError("A book return date is invalid.") from None
+                if not borrowed_on <= returned_on <= today:
+                    raise ValueError("A book return date is invalid.")
+                amount += self._calculate_overdue_fine((returned_on - due_date).days, 1)
+            if amount > 99999999:
+                raise ValueError("The overdue charge exceeds the supported amount.")
+
+            self.borrowing_repo.complete_return(
+                borrowing_id, admin["admin_id"], today.isoformat(), len(book_ids), conn
+            )
+            fine = self.borrowing_repo.save_overdue_fine(
+                borrowing_id, amount, today.isoformat(), admin["admin_id"], conn
+            )
+            self.borrowing_repo.refresh_book_statuses(book_ids, conn)
+            conn.commit()
+            return {
+                "borrowing_id": borrowing_id, "reader_id": owner["reader_id"],
+                "admin_id": admin["admin_id"], "status": "Returned",
+                "return_date": today.isoformat(), "quantity": len(book_ids),
+                "days_overdue": max(0, (today - due_date).days), **fine,
             }
         except Exception:
             conn.rollback()

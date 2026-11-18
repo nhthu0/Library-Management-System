@@ -62,6 +62,11 @@ class BorrowingController:
                 message += (
                     f" This loan is {data['days_overdue']} day(s) overdue."
                 )
+                if "estimated_fine" in data:
+                    message += (
+                        f" Estimated overdue fine: {data['estimated_fine']:,} VND."
+                        " The final amount uses the actual return date."
+                    )
             return self._success(message, data)
         except (ValueError, PermissionError) as error:
             return self._error(str(error))
@@ -113,5 +118,27 @@ class BorrowingController:
             return self._error(str(error))
         except mysql.connector.Error:
             return self._error("Unable to process the borrowing request. Please contact the library administrator.")
+        except Exception:
+            return self._error("An unexpected error occurred.")
+
+    def get_pending_return_requests(self) -> dict:
+        try:
+            data = self.service.get_pending_return_requests(self.current_user)
+            return self._success("Pending return requests loaded successfully.", data)
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error("Unable to load return requests. Please contact the library administrator.")
+        except Exception:
+            return self._error("An unexpected error occurred.")
+
+    def confirm_return(self, borrowing_id: int) -> dict:
+        try:
+            data = self.service.confirm_return(borrowing_id, self.current_user)
+            return self._success("Book return confirmed successfully.", data)
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error("Unable to confirm the return. Please contact the library administrator.")
         except Exception:
             return self._error("An unexpected error occurred.")
