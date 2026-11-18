@@ -182,19 +182,15 @@ class BookService:
                 f"Book with ID {book_id} not found."
             )
 
-        is_available = (
-            book.status == "Available"
-            and book.quantity > 0
-        )
+        data = book.to_dict()
+        is_available = data["available_quantity"] > 0
 
         return {
             "book_id": book.book_id,
             "title": book.title,
-            "status": book.status,
+            "status": data["status"],
             "is_available": is_available,
-            "available_quantity": (
-                book.quantity if is_available else 0
-            )
+            "available_quantity": data["available_quantity"],
         }
 
     def add_book(
@@ -345,7 +341,9 @@ class BookService:
         elif quantity == 0:
             status = "Unavailable"
 
-        elif existing.quantity == 0 and quantity > 0:
+        elif quantity > existing.quantity and (
+            existing.quantity == 0 or existing.available_quantity == 0
+        ):
             status = "Available"
 
         else:
