@@ -6,10 +6,9 @@ class ReaderRepository:
         cursor = self.db.cursor()
         try:
             self.db.start_transaction()
-            # 1. Insert vào bảng USERS
             user_query = """
                 INSERT INTO USERS (username, full_name, email, password, phone_number, role, account_status)
-                VALUES (%s, %s, %s, %s, %s, 'READER', 'Active')
+                VALUES (%s, %s, %s, %s, %s, 'Reader', 'Active')
             """
             cursor.execute(user_query, (
                 user_data['username'],
@@ -20,7 +19,6 @@ class ReaderRepository:
             ))
             user_id = cursor.lastrowid
 
-            # 2. Insert vào bảng READERS
             reader_query = "INSERT INTO READERS (userID, expiration_date) VALUES (%s, %s)"
             cursor.execute(reader_query, (user_id, user_data.get('expiration_date')))
             
@@ -38,7 +36,7 @@ class ReaderRepository:
             SELECT r.readerID, u.userID, u.username, u.full_name, u.email, u.phone_number, u.account_status, r.expiration_date 
             FROM USERS u 
             JOIN READERS r ON u.userID = r.userID 
-            WHERE u.role = 'READER'
+            WHERE u.role = 'Reader'
         """
         cursor.execute(query)
         result = cursor.fetchall()

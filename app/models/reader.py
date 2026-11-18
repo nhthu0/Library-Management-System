@@ -1,4 +1,4 @@
-from models.user import User
+﻿from app.models.user import User
 
 class Reader(User):
     def __init__(self, user_id, username, full_name, email, password, phone_number, account_status, reader_id, expiration_date):
