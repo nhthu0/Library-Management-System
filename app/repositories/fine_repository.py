@@ -154,3 +154,70 @@ class FineRepository:
         finally:
             cursor.close()
             conn.close()
+
+    def get_fines_by_reader(self, reader_id: int) -> list[dict]:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    f.fineID AS fine_id,
+                    f.borrowingID AS borrowing_id,
+                    f.amount,
+                    f.reason,
+                    f.fine_date,
+                    f.payment_status,
+                    f.payment_date,
+                    br.due_date,
+                    br.return_date,
+
+                    (
+                        SELECT GROUP_CONCAT(
+                            DISTINCT b.title
+                            ORDER BY b.title
+                            SEPARATOR ', '
+                        )
+                        FROM borrowing_details bd
+                        JOIN books b
+                            ON bd.bookID = b.bookID
+                        WHERE bd.borrowingID = f.borrowingID
+                    ) AS book_titles,
+
+                    (
+                        SELECT COALESCE(
+                            SUM(
+                                GREATEST(
+                                    DATEDIFF(
+                                        COALESCE(
+                                            NULLIF(bd.return_date, ''),
+                                            NULLIF(br.return_date, '')
+                                        ),
+                                        br.due_date
+                                    ),
+                                    0
+                                )
+                            ),
+                            0
+                        )
+                        FROM borrowing_details bd
+                        WHERE bd.borrowingID = f.borrowingID
+                    ) AS days_overdue
+
+                FROM fines f
+                INNER JOIN borrowing_records br
+                    ON f.borrowingID = br.borrowingID
+
+                WHERE br.readerID = %s
+
+                ORDER BY f.fine_date DESC, f.fineID DESC
+                """,
+                (reader_id,)
+            )
+
+            return cursor.fetchall()
+
+        finally:
+            cursor.close()
+            conn.close()

@@ -138,3 +138,30 @@ class FineService:
         result["days_overdue"] = total_days_overdue
 
         return result
+
+    def get_my_fines(self, current_user: dict | None) -> list[dict]:
+        if not isinstance(current_user, dict):
+            raise PermissionError("Please log in to view your fines.")
+
+        role = str(current_user.get("role", "")).upper()
+
+        if role != "READER":
+            raise PermissionError(
+                "Only readers can view their personal fines."
+            )
+
+        reader_id = current_user.get("reader_id")
+
+        if not reader_id:
+            raise ValueError(
+                "Reader ID is missing from the current session."
+            )
+
+        if (
+            not isinstance(reader_id, int)
+            or isinstance(reader_id, bool)
+            or reader_id <= 0
+        ):
+            raise ValueError("Invalid reader ID.")
+
+        return self.repo.get_fines_by_reader(reader_id)

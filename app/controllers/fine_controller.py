@@ -54,3 +54,28 @@ class FineController:
             return self._error(
                 "An unexpected error occurred."
             )
+
+
+    def get_my_fines(self) -> dict:
+        try:
+            fines = self.service.get_my_fines(
+                self.current_user
+            )
+
+            return self._success(
+                "Retrieved reader fines successfully.",
+                fines
+            )
+
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+
+        except mysql.connector.Error:
+            return self._error(
+                "Database error occurred while retrieving fines."
+            )
+
+        except Exception:
+            return self._error(
+                "An unexpected error occurred."
+            )

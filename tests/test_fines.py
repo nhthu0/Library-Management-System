@@ -309,3 +309,75 @@ def test_borrowing_not_found():
 
     with pytest.raises(ValueError):
         service.calculate_fine(999, current_user)
+
+
+
+def test_reader_can_view_own_fines(
+    reader_fines_service,
+    reader_user
+):
+    result = reader_fines_service.get_my_fines(reader_user)
+
+    assert len(result) == 2
+    assert result[0]["fine_id"] == 1
+    assert result[1]["fine_id"] == 2
+
+    assert reader_fines_service.repo.requested_reader_id == 2
+
+
+def test_reader_fines_contain_display_information(
+    reader_fines_service,
+    reader_user
+):
+    result = reader_fines_service.get_my_fines(reader_user)
+
+    first_fine = result[0]
+
+    assert first_fine["book_titles"] == "Python Programming"
+    assert first_fine["days_overdue"] == 3
+    assert first_fine["amount"] == Decimal("6000.00")
+    assert first_fine["payment_status"] == "Unpaid"
+    assert first_fine["fine_date"] == "2026-11-15"
+
+
+def test_reader_with_no_fines_gets_empty_list(reader_user):
+    service = FineService()
+    service.repo = FakeFineRepository(fines=[])
+
+    result = service.get_my_fines(reader_user)
+
+    assert result == []
+
+
+def test_admin_cannot_use_reader_personal_fines(
+    reader_fines_service,
+    admin_user
+):
+    with pytest.raises(PermissionError):
+        reader_fines_service.get_my_fines(admin_user)
+
+
+def test_reader_fines_require_login(reader_fines_service):
+    with pytest.raises(PermissionError):
+        reader_fines_service.get_my_fines(None)
+
+
+def test_reader_id_is_required(reader_fines_service):
+    user = {
+        "user_id": 2,
+        "role": "READER"
+    }
+
+    with pytest.raises(ValueError):
+        reader_fines_service.get_my_fines(user)
+
+
+def test_invalid_reader_id_is_rejected(reader_fines_service):
+    user = {
+        "user_id": 2,
+        "reader_id": -1,
+        "role": "READER"
+    }
+
+    with pytest.raises(ValueError):
+        reader_fines_service.get_my_fines(user)
