@@ -49,3 +49,24 @@ class ReportController:
             return self._error(
                 "An unexpected error occurred."
             )
+
+    # LMS-47: Reader Statistics
+    def get_reader_statistics(self) -> dict:
+        try:
+            statistics = self.service.get_reader_statistics(
+                self.current_user
+            )
+            return self._success(
+                "Retrieved reader statistics successfully.",
+                statistics
+            )
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error(
+                "Database error occurred while retrieving reader statistics."
+            )
+        except Exception:
+            return self._error(
+                "An unexpected error occurred."
+            )

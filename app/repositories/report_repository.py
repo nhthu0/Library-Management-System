@@ -62,3 +62,73 @@ class ReportRepository:
         finally:
             cursor.close()
             conn.close()
+
+    # LMS-47: Reader Statistics
+    def get_reader_statistics(self) -> dict:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    COUNT(r.readerID) AS total_readers,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN u.account_status = 'Active' THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS active_readers,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN u.account_status = 'Locked' THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS locked_readers,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN u.account_status = 'Inactive' THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS inactive_readers
+                FROM readers r
+                INNER JOIN users u ON r.userID = u.userID
+                WHERE u.role = 'Reader'
+                """
+            )
+            summary = cursor.fetchone()
+
+            cursor.execute(
+                """
+                SELECT
+                    u.account_status,
+                    COUNT(r.readerID) AS total_readers
+                FROM readers r
+                INNER JOIN users u ON r.userID = u.userID
+                WHERE u.role = 'Reader'
+                GROUP BY u.account_status
+                ORDER BY u.account_status ASC
+                """
+            )
+            statuses = cursor.fetchall()
+
+            return {
+                "total_readers": summary["total_readers"],
+                "active_readers": summary["active_readers"],
+                "locked_readers": summary["locked_readers"],
+                "inactive_readers": summary["inactive_readers"],
+                "by_status": statuses
+            }
+
+        finally:
+            cursor.close()
+            conn.close()
