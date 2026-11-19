@@ -630,3 +630,477 @@ def test_controller_borrowing_report_unexpected_error(admin_user):
     assert result["data"] is None
     assert result["message"] == "An unexpected error occurred."
     assert "Internal error details." not in result["message"]
+
+
+# ==============================
+# LMS-49: CSV Exporter Tests
+# ==============================
+
+import csv
+
+from app.utils.csv_exporter import export_report_to_csv
+
+
+def test_export_report_to_csv_success(tmp_path):
+    report_data = {
+        "book_statistics": {
+            "total_titles": 100,
+            "total_quantity": 500
+        },
+        "by_category": [
+            {
+                "category": "Lập trình",
+                "total_titles": 60
+            }
+        ]
+    }
+
+    file_path = tmp_path / "report.csv"
+
+    result = export_report_to_csv(report_data, str(file_path))
+
+    assert result == str(file_path)
+    assert file_path.exists()
+
+    with file_path.open(
+        "r",
+        newline="",
+        encoding="utf-8-sig"
+    ) as csv_file:
+        rows = list(csv.reader(csv_file))
+
+    assert rows[0] == ["Section", "Metric", "Value"]
+    assert ["book_statistics", "total_titles", "100"] in rows
+    assert ["book_statistics", "total_quantity", "500"] in rows
+    assert ["by_category", "1 - category", "Lập trình"] in rows
+
+
+def test_export_report_to_csv_empty_report(tmp_path):
+    file_path = tmp_path / "empty.csv"
+
+    export_report_to_csv({}, str(file_path))
+
+    assert file_path.exists()
+
+
+def test_export_report_to_csv_rejects_invalid_data(tmp_path):
+    file_path = tmp_path / "invalid.csv"
+
+    with pytest.raises(ValueError):
+        export_report_to_csv(["invalid"], str(file_path))
+
+
+def test_export_report_to_csv_rejects_invalid_path():
+    with pytest.raises(ValueError):
+        export_report_to_csv({"total": 10}, "")
+
+
+# ==============================
+# LMS-49: Book Status Statistics Tests
+# ==============================
+
+class FakeLMS49Repository:
+
+    def __init__(self):
+        self.book_status_called = False
+        self.fine_statistics_called = False
+
+    def get_book_status_statistics(self):
+        self.book_status_called = True
+        return {
+            "currently_borrowed": 10,
+            "returned": 20,
+            "overdue": 3
+        }
+
+    def get_fine_statistics(self):
+        self.fine_statistics_called = True
+        return {
+            "total_fines": 8,
+            "total_amount": 500000,
+            "paid_amount": 300000,
+            "unpaid_amount": 200000,
+            "paid_count": 5,
+            "unpaid_count": 3
+        }
+
+
+@pytest.fixture
+def lms49_service():
+    service = ReportService()
+    service.repo = FakeLMS49Repository()
+    return service
+
+
+def test_admin_can_get_book_status_statistics(
+    lms49_service,
+    admin_user
+):
+    result = lms49_service.get_book_status_statistics(admin_user)
+
+    assert result["currently_borrowed"] == 10
+    assert result["returned"] == 20
+    assert result["overdue"] == 3
+    assert lms49_service.repo.book_status_called is True
+
+
+def test_reader_cannot_get_book_status_statistics(
+    lms49_service,
+    reader_user
+):
+    with pytest.raises(PermissionError):
+        lms49_service.get_book_status_statistics(reader_user)
+
+    assert lms49_service.repo.book_status_called is False
+
+
+def test_book_status_statistics_requires_login(lms49_service):
+    with pytest.raises(PermissionError):
+        lms49_service.get_book_status_statistics(None)
+
+    assert lms49_service.repo.book_status_called is False
+
+
+def test_admin_can_get_fine_statistics(
+    lms49_service,
+    admin_user
+):
+    result = lms49_service.get_fine_statistics(admin_user)
+
+    assert result["total_fines"] == 8
+    assert result["total_amount"] == 500000
+    assert result["paid_amount"] == 300000
+    assert result["unpaid_amount"] == 200000
+    assert result["paid_count"] == 5
+    assert result["unpaid_count"] == 3
+    assert lms49_service.repo.fine_statistics_called is True
+
+
+def test_reader_cannot_get_fine_statistics(
+    lms49_service,
+    reader_user
+):
+    with pytest.raises(PermissionError):
+        lms49_service.get_fine_statistics(reader_user)
+
+    assert lms49_service.repo.fine_statistics_called is False
+
+
+def test_fine_statistics_requires_login(lms49_service):
+    with pytest.raises(PermissionError):
+        lms49_service.get_fine_statistics(None)
+
+    assert lms49_service.repo.fine_statistics_called is False
+
+
+# ==============================
+# LMS-49: Report Controller Tests
+# ==============================
+
+def test_controller_get_book_status_statistics_success(admin_user):
+    controller = ReportController(admin_user)
+
+    expected = {
+        "currently_borrowed": 10,
+        "returned": 20,
+        "overdue": 3
+    }
+
+    class FakeService:
+        def get_book_status_statistics(self, current_user):
+            assert current_user == admin_user
+            return expected
+
+    controller.service = FakeService()
+    result = controller.get_book_status_statistics()
+
+    assert result["success"] is True
+    assert result["data"] == expected
+
+
+def test_controller_book_status_statistics_permission_error(reader_user):
+    controller = ReportController(reader_user)
+
+    class FakeService:
+        def get_book_status_statistics(self, current_user):
+            raise PermissionError("Admin permission required.")
+
+    controller.service = FakeService()
+    result = controller.get_book_status_statistics()
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "Admin permission required."
+
+
+def test_controller_book_status_statistics_database_error(admin_user):
+    import mysql.connector
+
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def get_book_status_statistics(self, current_user):
+            raise mysql.connector.Error("Database details")
+
+    controller.service = FakeService()
+    result = controller.get_book_status_statistics()
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert "Database error" in result["message"]
+
+
+def test_controller_book_status_statistics_unexpected_error(admin_user):
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def get_book_status_statistics(self, current_user):
+            raise RuntimeError("Internal error details.")
+
+    controller.service = FakeService()
+    result = controller.get_book_status_statistics()
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "An unexpected error occurred."
+    assert "Internal error details." not in result["message"]
+
+
+def test_controller_get_fine_statistics_success(admin_user):
+    controller = ReportController(admin_user)
+
+    expected = {
+        "total_fines": 8,
+        "total_amount": 500000,
+        "paid_amount": 300000,
+        "unpaid_amount": 200000,
+        "paid_count": 5,
+        "unpaid_count": 3
+    }
+
+    class FakeService:
+        def get_fine_statistics(self, current_user):
+            assert current_user == admin_user
+            return expected
+
+    controller.service = FakeService()
+    result = controller.get_fine_statistics()
+
+    assert result["success"] is True
+    assert result["data"] == expected
+
+
+def test_controller_fine_statistics_permission_error(reader_user):
+    controller = ReportController(reader_user)
+
+    class FakeService:
+        def get_fine_statistics(self, current_user):
+            raise PermissionError("Admin permission required.")
+
+    controller.service = FakeService()
+    result = controller.get_fine_statistics()
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "Admin permission required."
+
+
+def test_controller_fine_statistics_database_error(admin_user):
+    import mysql.connector
+
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def get_fine_statistics(self, current_user):
+            raise mysql.connector.Error("Database details")
+
+    controller.service = FakeService()
+    result = controller.get_fine_statistics()
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert "Database error" in result["message"]
+
+
+def test_controller_fine_statistics_unexpected_error(admin_user):
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def get_fine_statistics(self, current_user):
+            raise RuntimeError("Internal error details.")
+
+    controller.service = FakeService()
+    result = controller.get_fine_statistics()
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "An unexpected error occurred."
+    assert "Internal error details." not in result["message"]
+
+
+# ==============================
+# LMS-49: Report Export Service Tests
+# ==============================
+
+def test_admin_can_export_fine_statistics(
+    lms49_service,
+    admin_user,
+    monkeypatch,
+    tmp_path
+):
+    file_path = str(tmp_path / "fines.csv")
+    captured = {}
+
+    def fake_export(report_data, output_path):
+        captured["report_data"] = report_data
+        captured["file_path"] = output_path
+        return output_path
+
+    monkeypatch.setattr(
+        "app.services.report_service.export_report_to_csv",
+        fake_export
+    )
+
+    result = lms49_service.export_report(
+        "fine_statistics",
+        file_path,
+        admin_user
+    )
+
+    assert result == file_path
+    assert captured["file_path"] == file_path
+    assert captured["report_data"]["total_fines"] == 8
+    assert lms49_service.repo.fine_statistics_called is True
+
+
+def test_reader_cannot_export_report(
+    lms49_service,
+    reader_user,
+    tmp_path
+):
+    file_path = str(tmp_path / "fines.csv")
+
+    with pytest.raises(PermissionError):
+        lms49_service.export_report(
+            "fine_statistics",
+            file_path,
+            reader_user
+        )
+
+    assert lms49_service.repo.fine_statistics_called is False
+
+
+def test_export_report_rejects_unsupported_type(
+    lms49_service,
+    admin_user,
+    tmp_path
+):
+    with pytest.raises(ValueError):
+        lms49_service.export_report(
+            "invalid_report",
+            str(tmp_path / "report.csv"),
+            admin_user
+        )
+
+
+def test_export_borrowing_report_requires_dates(
+    lms49_service,
+    admin_user,
+    tmp_path
+):
+    with pytest.raises(ValueError):
+        lms49_service.export_report(
+            "borrowing_report",
+            str(tmp_path / "borrowing.csv"),
+            admin_user
+        )
+
+
+# ==============================
+# LMS-49: Report Export Controller Tests
+# ==============================
+
+def test_controller_export_report_success(admin_user):
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def export_report(
+            self, report_type, file_path, current_user,
+            start_date, end_date
+        ):
+            assert report_type == "fine_statistics"
+            assert current_user == admin_user
+            return file_path
+
+    controller.service = FakeService()
+
+    result = controller.export_report(
+        "fine_statistics",
+        "/tmp/fines.csv"
+    )
+
+    assert result["success"] is True
+    assert result["data"]["file_path"] == "/tmp/fines.csv"
+
+
+def test_controller_export_report_permission_error(reader_user):
+    controller = ReportController(reader_user)
+
+    class FakeService:
+        def export_report(self, *args):
+            raise PermissionError("Admin permission required.")
+
+    controller.service = FakeService()
+    result = controller.export_report("fine_statistics", "/tmp/fines.csv")
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "Admin permission required."
+
+
+def test_controller_export_report_os_error(admin_user):
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def export_report(self, *args):
+            raise OSError("Private file system details.")
+
+    controller.service = FakeService()
+    result = controller.export_report("fine_statistics", "/tmp/fines.csv")
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "Unable to export report to CSV."
+
+
+def test_controller_export_report_database_error(admin_user):
+    import mysql.connector
+
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def export_report(self, *args):
+            raise mysql.connector.Error("Database details.")
+
+    controller.service = FakeService()
+    result = controller.export_report("fine_statistics", "/tmp/fines.csv")
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert "Database error" in result["message"]
+
+
+def test_controller_export_report_unexpected_error(admin_user):
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def export_report(self, *args):
+            raise RuntimeError("Internal details.")
+
+    controller.service = FakeService()
+    result = controller.export_report("fine_statistics", "/tmp/fines.csv")
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "An unexpected error occurred."
+    assert "Internal details." not in result["message"]

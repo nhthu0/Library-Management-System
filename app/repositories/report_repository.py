@@ -207,3 +207,135 @@ class ReportRepository:
         finally:
             cursor.close()
             conn.close()
+
+    # LMS-49: Book Status Statistics
+
+    def get_book_status_statistics(self) -> dict:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    COUNT(
+                        CASE
+                            WHEN br.status = 'Borrowed'
+                                AND NULLIF(bd.return_date, '') IS NULL
+                                AND NULLIF(br.return_date, '') IS NULL
+                            THEN 1
+                        END
+                    ) AS currently_borrowed,
+
+                    COUNT(
+                        CASE
+                            WHEN NULLIF(bd.return_date, '') IS NOT NULL
+                                OR NULLIF(br.return_date, '') IS NOT NULL
+                            THEN 1
+                        END
+                    ) AS returned,
+
+                    COUNT(
+                        CASE
+                            WHEN br.status = 'Borrowed'
+                                AND NULLIF(bd.return_date, '') IS NULL
+                                AND NULLIF(br.return_date, '') IS NULL
+                                AND br.due_date < CURDATE()
+                            THEN 1
+                        END
+                    ) AS overdue
+
+                FROM borrowing_details bd
+                INNER JOIN borrowing_records br
+                    ON bd.borrowingID = br.borrowingID
+                """
+            )
+
+            result = cursor.fetchone()
+
+            return {
+                "currently_borrowed": result["currently_borrowed"],
+                "returned": result["returned"],
+                "overdue": result["overdue"]
+            }
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    # LMS-49: Fine Statistics
+
+    def get_fine_statistics(self) -> dict:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    COUNT(fineID) AS total_fines,
+
+                    COALESCE(SUM(amount), 0) AS total_amount,
+
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN payment_status = 'Paid'
+                                THEN amount
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS paid_amount,
+
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN payment_status = 'Unpaid'
+                                THEN amount
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS unpaid_amount,
+
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN payment_status = 'Paid'
+                                THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS paid_count,
+
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN payment_status = 'Unpaid'
+                                THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS unpaid_count
+
+                FROM fines
+                """
+            )
+
+            result = cursor.fetchone()
+
+            return {
+                "total_fines": result["total_fines"],
+                "total_amount": result["total_amount"],
+                "paid_amount": result["paid_amount"],
+                "unpaid_amount": result["unpaid_amount"],
+                "paid_count": result["paid_count"],
+                "unpaid_count": result["unpaid_count"]
+            }
+
+        finally:
+            cursor.close()
+            conn.close()

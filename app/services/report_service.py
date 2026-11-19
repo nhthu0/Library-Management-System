@@ -1,4 +1,5 @@
 from app.repositories.report_repository import ReportRepository
+from app.utils.csv_exporter import export_report_to_csv
 
 
 class ReportService:
@@ -65,3 +66,63 @@ class ReportService:
             start_date,
             end_date
         )
+
+    # LMS-49: Book Status Statistics
+
+    def get_book_status_statistics(
+        self,
+        current_user: dict | None
+    ) -> dict:
+        self._require_admin(current_user)
+        return self.repo.get_book_status_statistics()
+
+    # LMS-49: Fine Statistics
+
+    def get_fine_statistics(
+        self,
+        current_user: dict | None
+    ) -> dict:
+        self._require_admin(current_user)
+        return self.repo.get_fine_statistics()
+
+    # LMS-49: Export Report to CSV
+
+    def export_report(
+        self,
+        report_type: str,
+        file_path: str,
+        current_user: dict | None,
+        start_date: str | None = None,
+        end_date: str | None = None
+    ) -> str:
+        self._require_admin(current_user)
+
+        if not isinstance(file_path, str) or not file_path.strip():
+            raise ValueError("Invalid CSV file path.")
+
+        reports = {
+            "book_statistics": self.get_statistics,
+            "reader_statistics": self.get_reader_statistics,
+            "book_status_statistics": self.get_book_status_statistics,
+            "fine_statistics": self.get_fine_statistics
+        }
+
+        if report_type == "borrowing_report":
+            if start_date is None or end_date is None:
+                raise ValueError(
+                    "Start date and end date are required for borrowing reports."
+                )
+
+            report_data = self.get_borrowing_report(
+                start_date,
+                end_date,
+                current_user
+            )
+
+        elif isinstance(report_type, str) and report_type in reports:
+            report_data = reports[report_type](current_user)
+
+        else:
+            raise ValueError("Unsupported report type.")
+
+        return export_report_to_csv(report_data, file_path)

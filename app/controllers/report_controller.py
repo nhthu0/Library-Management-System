@@ -102,3 +102,88 @@ class ReportController:
             return self._error(
                 "An unexpected error occurred."
             )
+
+    # LMS-49: Book Status Statistics
+
+    def get_book_status_statistics(self) -> dict:
+        try:
+            statistics = self.service.get_book_status_statistics(
+                self.current_user
+            )
+            return self._success(
+                "Retrieved book status statistics successfully.",
+                statistics
+            )
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error(
+                "Database error occurred while retrieving book status statistics."
+            )
+        except Exception:
+            return self._error(
+                "An unexpected error occurred."
+            )
+
+    # LMS-49: Fine Statistics
+
+    def get_fine_statistics(self) -> dict:
+        try:
+            statistics = self.service.get_fine_statistics(
+                self.current_user
+            )
+            return self._success(
+                "Retrieved fine statistics successfully.",
+                statistics
+            )
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error(
+                "Database error occurred while retrieving fine statistics."
+            )
+        except Exception:
+            return self._error(
+                "An unexpected error occurred."
+            )
+
+    # LMS-49: Export Report to CSV
+
+    def export_report(
+        self,
+        report_type: str,
+        file_path: str,
+        start_date: str | None = None,
+        end_date: str | None = None
+    ) -> dict:
+        try:
+            exported_path = self.service.export_report(
+                report_type,
+                file_path,
+                self.current_user,
+                start_date,
+                end_date
+            )
+
+            return self._success(
+                "Report exported to CSV successfully.",
+                {"file_path": exported_path}
+            )
+
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+
+        except OSError:
+            return self._error(
+                "Unable to export report to CSV."
+            )
+
+        except mysql.connector.Error:
+            return self._error(
+                "Database error occurred while exporting report."
+            )
+
+        except Exception:
+            return self._error(
+                "An unexpected error occurred."
+            )
