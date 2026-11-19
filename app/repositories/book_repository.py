@@ -16,7 +16,11 @@ class BookRepository:
             publisher=row.get("publisher"),
             publication_year=row.get("publication_year"),
             status=row["status"],
-            quantity=row["quantity"]
+            quantity=row["quantity"],
+            available_quantity=max(
+                0,
+                int(row["quantity"]) - int(row.get("borrowed_quantity", 0))
+            ),
         )
 
     def get_all(self) -> list[Book]:
@@ -24,7 +28,9 @@ class BookRepository:
         cursor = conn.cursor(dictionary=True)
 
         try:
-            cursor.execute("SELECT * FROM books ORDER BY bookID ASC")
+            cursor.execute(
+                self._book_select() + " ORDER BY b.bookID ASC"
+            )
             rows = cursor.fetchall()
             return [self._row_to_book(row) for row in rows]
 
@@ -38,7 +44,7 @@ class BookRepository:
 
         try:
             cursor.execute(
-                "SELECT * FROM books WHERE bookID = %s",
+                self._book_select() + " WHERE b.bookID = %s",
                 (book_id,)
             )
             return self._row_to_book(cursor.fetchone())
@@ -54,13 +60,12 @@ class BookRepository:
         try:
             like_kw = f"%{keyword}%"
 
-            query = """
-                SELECT * FROM books
-                WHERE title LIKE %s
-                   OR author LIKE %s
-                   OR category LIKE %s
-                   OR CAST(bookID AS CHAR) LIKE %s
-                ORDER BY bookID ASC
+            query = self._book_select() + """
+                WHERE b.title LIKE %s
+                   OR b.author LIKE %s
+                   OR b.category LIKE %s
+                   OR CAST(b.bookID AS CHAR) LIKE %s
+                ORDER BY b.bookID ASC
             """
 
             cursor.execute(
@@ -122,6 +127,42 @@ class BookRepository:
         cursor = conn.cursor()
 
         try:
+            conn.start_transaction(isolation_level="READ COMMITTED")
+
+            cursor.execute(
+                "SELECT bookID FROM books WHERE bookID = %s FOR UPDATE",
+                (book.book_id,)
+            )
+
+            if cursor.fetchone() is None:
+                conn.rollback()
+                return False
+
+            cursor.execute(
+                """SELECT COUNT(*) FROM borrowing_details AS d
+                   JOIN borrowing_records AS r
+                       ON r.borrowingID = d.borrowingID
+                   WHERE d.bookID = %s
+                     AND d.return_date IS NULL
+                     AND r.status IN (%s, %s)""",
+                (book.book_id, "Borrowed", "ReturnRequested"),
+            )
+
+            held = int(cursor.fetchone()[0])
+
+            if book.quantity < held:
+                raise ValueError(
+                    "Total quantity cannot be less than the number of unreturned copies."
+                )
+
+            available = book.quantity - held
+
+# Preserve the status decided by BookService.
+# A manually unavailable book must remain unavailable
+# even when additional copies are added.
+            if available <= 0:
+                book.status = "Unavailable"
+
             query = """
                 UPDATE books
                 SET title = %s,
@@ -146,9 +187,18 @@ class BookRepository:
             )
 
             cursor.execute(query, values)
+
+            changed = cursor.rowcount > 0
+
             conn.commit()
 
-            return cursor.rowcount > 0
+            book.available_quantity = (
+                available
+                if book.status == "Available"
+                else 0
+            )
+
+            return changed
 
         except Exception:
             conn.rollback()
@@ -195,3 +245,19 @@ class BookRepository:
         finally:
             cursor.close()
             conn.close()
+
+    @staticmethod
+    def _book_select():
+        return """
+            SELECT b.*,
+                   (
+                       SELECT COUNT(*)
+                       FROM borrowing_details AS d
+                       JOIN borrowing_records AS r
+                           ON r.borrowingID = d.borrowingID
+                       WHERE d.bookID = b.bookID
+                         AND d.return_date IS NULL
+                         AND r.status IN ('Borrowed', 'ReturnRequested')
+                   ) AS borrowed_quantity
+            FROM books AS b
+        """
