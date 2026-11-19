@@ -4,8 +4,10 @@ from app.config.settings import DB_CONFIG
 
 
 def get_connection():
-    """Tạo kết nối tới MySQL."""
-    return mysql.connector.connect(**DB_CONFIG)
+    return mysql.connector.connect(
+        **DB_CONFIG,
+        autocommit=True
+    )
 
 
 def test_connection():
