@@ -79,3 +79,30 @@ class FineController:
             return self._error(
                 "An unexpected error occurred."
             )
+
+    # LMS-45: Confirm fine payment.
+    def confirm_payment(self, fine_id: int) -> dict:
+
+        try:
+            fine = self.service.confirm_payment(
+                fine_id,
+                self.current_user
+            )
+
+            return self._success(
+                "Fine payment confirmed successfully.",
+                fine
+            )
+
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+
+        except mysql.connector.Error:
+            return self._error(
+                "Database error occurred while confirming fine payment."
+            )
+
+        except Exception:
+            return self._error(
+                "An unexpected error occurred."
+            )

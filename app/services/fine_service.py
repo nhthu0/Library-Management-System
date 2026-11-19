@@ -165,3 +165,31 @@ class FineService:
             raise ValueError("Invalid reader ID.")
 
         return self.repo.get_fines_by_reader(reader_id)
+
+    # LMS-45: Confirm fine payment.
+    def confirm_payment(
+        self,
+        fine_id: int,
+        current_user: dict | None
+    ) -> dict:
+
+        self._require_admin(current_user)
+
+        if (
+            not isinstance(fine_id, int)
+            or isinstance(fine_id, bool)
+            or fine_id <= 0
+        ):
+            raise ValueError("Invalid fine ID.")
+
+        payment_date = date.today().isoformat()
+
+        fine = self.repo.confirm_payment(
+            fine_id,
+            payment_date
+        )
+
+        if fine is None:
+            raise ValueError("Fine not found.")
+
+        return fine

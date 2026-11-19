@@ -221,3 +221,71 @@ class FineRepository:
         finally:
             cursor.close()
             conn.close()
+
+    # LMS-45: Confirm fine payment.
+    def confirm_payment(
+        self,
+        fine_id: int,
+        payment_date: str
+    ) -> dict | None:
+
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    fineID AS fine_id,
+                    amount,
+                    payment_status,
+                    payment_date
+                FROM fines
+                WHERE fineID = %s
+                FOR UPDATE
+                """,
+                (fine_id,)
+            )
+
+            fine = cursor.fetchone()
+
+            if not fine:
+                conn.rollback()
+                return None
+
+            if fine["payment_status"] == "Paid":
+                raise ValueError("Fine has already been paid.")
+
+            if fine["payment_status"] != "Unpaid":
+                raise ValueError("Invalid fine payment status.")
+
+            cursor.execute(
+                """
+                UPDATE fines
+                SET payment_status = 'Paid',
+                    payment_date = %s
+                WHERE fineID = %s
+                  AND payment_status = 'Unpaid'
+                """,
+                (payment_date, fine_id)
+            )
+
+            if cursor.rowcount != 1:
+                raise RuntimeError(
+                    "Unable to confirm fine payment."
+                )
+
+            conn.commit()
+
+            fine["payment_status"] = "Paid"
+            fine["payment_date"] = payment_date
+
+            return fine
+
+        except Exception:
+            conn.rollback()
+            raise
+
+        finally:
+            cursor.close()
+            conn.close()

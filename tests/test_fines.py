@@ -3,6 +3,7 @@ import pytest
 from decimal import Decimal
 
 from app.services.fine_service import FineService
+from app.controllers.fine_controller import FineController
 
 
 class FakeFineRepository:
@@ -381,3 +382,190 @@ def test_invalid_reader_id_is_rejected(reader_fines_service):
 
     with pytest.raises(ValueError):
         reader_fines_service.get_my_fines(user)
+
+
+# =========================
+# LMS-45: Fine Payment Tests
+# =========================
+
+class PaymentFakeFineRepository(FakeFineRepository):
+
+    def __init__(self, payment_fine="DEFAULT", payment_error=None):
+        super().__init__()
+
+        if payment_fine == "DEFAULT":
+            self.payment_fine = {
+                "fine_id": 10,
+                "amount": Decimal("6000.00"),
+                "payment_status": "Unpaid",
+                "payment_date": None
+            }
+        else:
+            self.payment_fine = payment_fine
+
+        self.payment_error = payment_error
+        self.requested_fine_id = None
+        self.requested_payment_date = None
+
+    def confirm_payment(self, fine_id, payment_date):
+        self.requested_fine_id = fine_id
+        self.requested_payment_date = payment_date
+
+        if self.payment_error:
+            raise self.payment_error
+
+        if self.payment_fine is None:
+            return None
+
+        if self.payment_fine["payment_status"] == "Paid":
+            raise ValueError("Fine has already been paid.")
+
+        self.payment_fine["payment_status"] = "Paid"
+        self.payment_fine["payment_date"] = payment_date
+
+        return self.payment_fine
+
+
+
+def test_admin_can_confirm_fine_payment(admin_user):
+    service = FineService()
+    service.repo = PaymentFakeFineRepository()
+
+    result = service.confirm_payment(10, admin_user)
+
+    assert result["fine_id"] == 10
+    assert result["payment_status"] == "Paid"
+    assert result["payment_date"] is not None
+    assert service.repo.requested_fine_id == 10
+
+
+def test_reader_cannot_confirm_fine_payment(reader_user):
+    service = FineService()
+    service.repo = PaymentFakeFineRepository()
+
+    with pytest.raises(PermissionError):
+        service.confirm_payment(10, reader_user)
+
+
+def test_confirm_payment_requires_login():
+    service = FineService()
+    service.repo = PaymentFakeFineRepository()
+
+    with pytest.raises(PermissionError):
+        service.confirm_payment(10, None)
+
+
+@pytest.mark.parametrize("fine_id", [0, -1, True, "10"])
+def test_invalid_fine_id_is_rejected(admin_user, fine_id):
+    service = FineService()
+    service.repo = PaymentFakeFineRepository()
+
+    with pytest.raises(ValueError):
+        service.confirm_payment(fine_id, admin_user)
+
+
+def test_confirm_payment_fine_not_found(admin_user):
+    service = FineService()
+    service.repo = PaymentFakeFineRepository(payment_fine=None)
+
+    with pytest.raises(ValueError, match="Fine not found"):
+        service.confirm_payment(999, admin_user)
+
+
+def test_cannot_confirm_already_paid_fine(admin_user):
+    paid_fine = {
+        "fine_id": 10,
+        "amount": Decimal("6000.00"),
+        "payment_status": "Paid",
+        "payment_date": "2026-11-18"
+    }
+
+    service = FineService()
+    service.repo = PaymentFakeFineRepository(
+        payment_fine=paid_fine
+    )
+
+    with pytest.raises(ValueError, match="already been paid"):
+        service.confirm_payment(10, admin_user)
+
+
+# ==============================
+# LMS-45: Fine Controller Tests
+# ==============================
+
+class PaymentFakeService:
+
+    def __init__(self, result=None, error=None):
+        self.result = result
+        self.error = error
+        self.requested_fine_id = None
+        self.requested_user = None
+
+    def confirm_payment(self, fine_id, current_user):
+        self.requested_fine_id = fine_id
+        self.requested_user = current_user
+
+        if self.error:
+            raise self.error
+
+        return self.result
+
+
+def test_controller_confirm_payment_success(admin_user):
+    fine = {
+        "fine_id": 10,
+        "amount": Decimal("6000.00"),
+        "payment_status": "Paid",
+        "payment_date": "2026-11-19"
+    }
+
+    controller = FineController(admin_user)
+    fake_service = PaymentFakeService(result=fine)
+    controller.service = fake_service
+
+    result = controller.confirm_payment(10)
+
+    assert result["success"] is True
+    assert result["data"] == fine
+    assert fake_service.requested_fine_id == 10
+    assert fake_service.requested_user == admin_user
+
+
+def test_controller_confirm_payment_permission_error(reader_user):
+    controller = FineController(reader_user)
+    controller.service = PaymentFakeService(
+        error=PermissionError("Admin permission required.")
+    )
+
+    result = controller.confirm_payment(10)
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "Admin permission required."
+
+
+def test_controller_confirm_payment_fine_not_found(admin_user):
+    controller = FineController(admin_user)
+    controller.service = PaymentFakeService(
+        error=ValueError("Fine not found.")
+    )
+
+    result = controller.confirm_payment(999)
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "Fine not found."
+
+
+def test_controller_confirm_payment_unexpected_error(admin_user):
+    controller = FineController(admin_user)
+    controller.service = PaymentFakeService(
+        error=RuntimeError("Internal error details.")
+    )
+
+    result = controller.confirm_payment(10)
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "An unexpected error occurred."
+    assert "Internal error details." not in result["message"]
