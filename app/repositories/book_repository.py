@@ -17,7 +17,10 @@ class BookRepository:
             publication_year=row.get("publication_year"),
             status=row["status"],
             quantity=row["quantity"],
-            available_quantity=max(0, int(row["quantity"]) - int(row.get("borrowed_quantity", 0))),
+            available_quantity=max(
+                0,
+                int(row["quantity"]) - int(row.get("borrowed_quantity", 0))
+            ),
         )
 
     def get_all(self) -> list[Book]:
@@ -25,7 +28,9 @@ class BookRepository:
         cursor = conn.cursor(dictionary=True)
 
         try:
-            cursor.execute(self._book_select() + " ORDER BY b.bookID ASC")
+            cursor.execute(
+                self._book_select() + " ORDER BY b.bookID ASC"
+            )
             rows = cursor.fetchall()
             return [self._row_to_book(row) for row in rows]
 
@@ -123,23 +128,41 @@ class BookRepository:
 
         try:
             conn.start_transaction(isolation_level="READ COMMITTED")
-            cursor.execute("SELECT bookID FROM books WHERE bookID = %s FOR UPDATE", (book.book_id,))
+
+            cursor.execute(
+                "SELECT bookID FROM books WHERE bookID = %s FOR UPDATE",
+                (book.book_id,)
+            )
+
             if cursor.fetchone() is None:
                 conn.rollback()
                 return False
+
             cursor.execute(
                 """SELECT COUNT(*) FROM borrowing_details AS d
-                   JOIN borrowing_records AS r ON r.borrowingID = d.borrowingID
-                   WHERE d.bookID = %s AND d.return_date IS NULL
+                   JOIN borrowing_records AS r
+                       ON r.borrowingID = d.borrowingID
+                   WHERE d.bookID = %s
+                     AND d.return_date IS NULL
                      AND r.status IN (%s, %s)""",
                 (book.book_id, "Borrowed", "ReturnRequested"),
             )
+
             held = int(cursor.fetchone()[0])
+
             if book.quantity < held:
-                raise ValueError("Total quantity cannot be less than the number of unreturned copies.")
+                raise ValueError(
+                    "Total quantity cannot be less than the number of unreturned copies."
+                )
+
             available = book.quantity - held
+
+# Preserve the status decided by BookService.
+# A manually unavailable book must remain unavailable
+# even when additional copies are added.
             if available <= 0:
                 book.status = "Unavailable"
+
             query = """
                 UPDATE books
                 SET title = %s,
@@ -164,9 +187,17 @@ class BookRepository:
             )
 
             cursor.execute(query, values)
+
             changed = cursor.rowcount > 0
+
             conn.commit()
-            book.available_quantity = available if book.status == "Available" else 0
+
+            book.available_quantity = (
+                available
+                if book.status == "Available"
+                else 0
+            )
+
             return changed
 
         except Exception:
@@ -219,9 +250,14 @@ class BookRepository:
     def _book_select():
         return """
             SELECT b.*,
-                   (SELECT COUNT(*) FROM borrowing_details AS d
-                    JOIN borrowing_records AS r ON r.borrowingID = d.borrowingID
-                    WHERE d.bookID = b.bookID AND d.return_date IS NULL
-                      AND r.status IN ('Borrowed', 'ReturnRequested')) AS borrowed_quantity
+                   (
+                       SELECT COUNT(*)
+                       FROM borrowing_details AS d
+                       JOIN borrowing_records AS r
+                           ON r.borrowingID = d.borrowingID
+                       WHERE d.bookID = b.bookID
+                         AND d.return_date IS NULL
+                         AND r.status IN ('Borrowed', 'ReturnRequested')
+                   ) AS borrowed_quantity
             FROM books AS b
         """

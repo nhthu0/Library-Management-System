@@ -1,3 +1,4 @@
+
 from datetime import date
 
 import pytest
@@ -14,7 +15,7 @@ class FakeConnection:
         self.closed = False
         self.fail_commit = False
 
-    def start_transaction(self):
+    def start_transaction(self, isolation_level=None, readonly=None):
         self.started = True
 
     def commit(self):
@@ -54,14 +55,13 @@ class FakeBorrowingRepository:
         self.counted_readers = []
         self.requests = []
         self.fail_save = False
+        self.book_repository = None
 
     def get_reader_for_update(self, user_id, connection):
         assert connection is self.conn
         assert connection.started
         self.lookups.append(user_id)
         return self.reader
-
-    
 
     def count_active_books(self, reader_id, connection):
         assert connection is self.conn
@@ -71,6 +71,30 @@ class FakeBorrowingRepository:
     def count_active_copies_for_book(self, book_id, connection):
         assert connection is self.conn
         return self.borrowed_copies
+
+    def lock_requested_books(self, book_ids, connection):
+        assert connection is self.conn
+        assert connection.started
+
+        result = {}
+
+        for book_id in sorted(set(book_ids)):
+            book = (
+                self.book_repository.book
+                if self.book_repository is not None
+                else None
+            )
+
+            if book is None or book.book_id != book_id:
+                result[book_id] = None
+            else:
+                result[book_id] = {
+                    "bookID": book_id,
+                    "quantity": book.quantity,
+                    "status": book.status,
+                }
+
+        return result
 
     def create_pending_request(
         self,
@@ -97,6 +121,7 @@ def setup():
     conn = FakeConnection()
     books = FakeBookRepository()
     borrowing = FakeBorrowingRepository(conn)
+    borrowing.book_repository = books
     opened = []
 
     def factory():
@@ -348,8 +373,11 @@ def test_storage_failure_rolls_back_and_closes_connection(
     assert not conn.committed
     assert books.book.quantity == 3
 
+
 @pytest.mark.parametrize("held, requested", [(3, 1), (2, 2), (4, 1)])
-def test_rejects_copies_currently_held_by_other_readers(setup, held, requested):
+def test_rejects_copies_currently_held_by_other_readers(
+    setup, held, requested
+):
     service, conn, books, borrowing, opened = setup
     borrowing.borrowed_copies = held
 
