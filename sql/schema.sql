@@ -127,6 +127,7 @@ CREATE TABLE `fines` (
   `adminID` int DEFAULT NULL,
   PRIMARY KEY (`fineID`),
   KEY `fk_fine_borrowing` (`borrowingID`),
+  UNIQUE KEY `uq_fines_borrowing` (`borrowingID`),
   KEY `fk_fine_admin` (`adminID`),
   CONSTRAINT `fk_fine_admin` FOREIGN KEY (`adminID`) REFERENCES `admins` (`adminID`),
   CONSTRAINT `fk_fine_borrowing` FOREIGN KEY (`borrowingID`) REFERENCES `borrowing_records` (`borrowingID`),
