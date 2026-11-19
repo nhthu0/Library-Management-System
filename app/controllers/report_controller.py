@@ -70,3 +70,35 @@ class ReportController:
             return self._error(
                 "An unexpected error occurred."
             )
+
+    # LMS-48: Borrowing and Returning Statistics
+
+    def get_borrowing_report(
+        self,
+        start_date: str,
+        end_date: str
+    ) -> dict:
+        try:
+            statistics = self.service.get_borrowing_report(
+                start_date,
+                end_date,
+                self.current_user
+            )
+
+            return self._success(
+                "Retrieved borrowing and returning statistics successfully.",
+                statistics
+            )
+
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+
+        except mysql.connector.Error:
+            return self._error(
+                "Database error occurred while retrieving borrowing and returning statistics."
+            )
+
+        except Exception:
+            return self._error(
+                "An unexpected error occurred."
+            )

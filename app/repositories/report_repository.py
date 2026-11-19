@@ -132,3 +132,78 @@ class ReportRepository:
         finally:
             cursor.close()
             conn.close()
+
+    # LMS-48: Borrowing and Returning Statistics
+
+    def get_borrowing_report(
+        self,
+        start_date: str,
+        end_date: str
+    ) -> dict:
+
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        try:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS total_borrowings
+                FROM borrowing_records
+                WHERE borrow_date BETWEEN %s AND %s
+                """,
+                (start_date, end_date)
+            )
+            borrowing_summary = cursor.fetchone()
+
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS total_returns
+                FROM borrowing_records
+                WHERE return_date IS NOT NULL
+                    AND return_date != ''
+                    AND return_date BETWEEN %s AND %s
+                """,
+                (start_date, end_date)
+            )
+            return_summary = cursor.fetchone()
+
+            cursor.execute(
+                """
+                SELECT
+                    borrow_date AS report_date,
+                    COUNT(*) AS total
+                FROM borrowing_records
+                WHERE borrow_date BETWEEN %s AND %s
+                GROUP BY borrow_date
+                ORDER BY borrow_date ASC
+                """,
+                (start_date, end_date)
+            )
+            borrowings_by_date = cursor.fetchall()
+
+            cursor.execute(
+                """
+                SELECT
+                    return_date AS report_date,
+                    COUNT(*) AS total
+                FROM borrowing_records
+                WHERE return_date IS NOT NULL
+                    AND return_date != ''
+                    AND return_date BETWEEN %s AND %s
+                GROUP BY return_date
+                ORDER BY return_date ASC
+                """,
+                (start_date, end_date)
+            )
+            returns_by_date = cursor.fetchall()
+
+            return {
+                "total_borrowings": borrowing_summary["total_borrowings"],
+                "total_returns": return_summary["total_returns"],
+                "borrowings_by_date": borrowings_by_date,
+                "returns_by_date": returns_by_date
+            }
+
+        finally:
+            cursor.close()
+            conn.close()

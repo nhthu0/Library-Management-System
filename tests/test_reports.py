@@ -371,3 +371,262 @@ def test_controller_reader_statistics_unexpected_error(admin_user):
     assert result["data"] is None
     assert result["message"] == "An unexpected error occurred."
     assert "Internal error details." not in result["message"]
+
+
+# ==================================================
+# LMS-48: BORROWING AND RETURNING STATISTICS
+# ==================================================
+
+class FakeBorrowingReportRepository:
+
+    def __init__(self, statistics=None):
+        self.statistics = statistics or {
+            "total_borrowings": 25,
+            "total_returns": 20,
+            "borrowings_by_date": [
+                {"report_date": "2026-11-10", "total": 10},
+                {"report_date": "2026-11-11", "total": 15}
+            ],
+            "returns_by_date": [
+                {"report_date": "2026-11-12", "total": 20}
+            ]
+        }
+        self.called = False
+        self.received_dates = None
+
+    def get_borrowing_report(self, start_date, end_date):
+        self.called = True
+        self.received_dates = (start_date, end_date)
+        return self.statistics
+
+
+@pytest.fixture
+def borrowing_report_service():
+    service = ReportService()
+    service.repo = FakeBorrowingReportRepository()
+    return service
+
+
+def test_admin_can_get_borrowing_report(
+    borrowing_report_service, admin_user
+):
+    result = borrowing_report_service.get_borrowing_report(
+        "2026-11-01",
+        "2026-11-30",
+        admin_user
+    )
+
+    assert result["total_borrowings"] == 25
+    assert result["total_returns"] == 20
+    assert len(result["borrowings_by_date"]) == 2
+    assert len(result["returns_by_date"]) == 1
+
+
+def test_borrowing_report_repository_is_called(
+    borrowing_report_service, admin_user
+):
+    borrowing_report_service.get_borrowing_report(
+        "2026-11-01",
+        "2026-11-30",
+        admin_user
+    )
+
+    assert borrowing_report_service.repo.called is True
+    assert borrowing_report_service.repo.received_dates == (
+        "2026-11-01",
+        "2026-11-30"
+    )
+
+
+def test_reader_cannot_get_borrowing_report(
+    borrowing_report_service, reader_user
+):
+    with pytest.raises(PermissionError):
+        borrowing_report_service.get_borrowing_report(
+            "2026-11-01",
+            "2026-11-30",
+            reader_user
+        )
+
+    assert borrowing_report_service.repo.called is False
+
+
+def test_borrowing_report_requires_login(borrowing_report_service):
+    with pytest.raises(PermissionError):
+        borrowing_report_service.get_borrowing_report(
+            "2026-11-01",
+            "2026-11-30",
+            None
+        )
+
+    assert borrowing_report_service.repo.called is False
+
+
+@pytest.mark.parametrize(
+    "start_date,end_date",
+    [
+        ("2026-13-01", "2026-11-30"),
+        ("invalid", "2026-11-30"),
+        ("2026-11-01", "2026/11/30"),
+        ("20261101", "20261130")
+    ]
+)
+def test_borrowing_report_rejects_invalid_dates(
+    borrowing_report_service, admin_user, start_date, end_date
+):
+    with pytest.raises(ValueError):
+        borrowing_report_service.get_borrowing_report(
+            start_date,
+            end_date,
+            admin_user
+        )
+
+    assert borrowing_report_service.repo.called is False
+
+
+def test_borrowing_report_rejects_start_date_after_end_date(
+    borrowing_report_service, admin_user
+):
+    with pytest.raises(ValueError, match="Start date must not be after end date"):
+        borrowing_report_service.get_borrowing_report(
+            "2026-11-30",
+            "2026-11-01",
+            admin_user
+        )
+
+    assert borrowing_report_service.repo.called is False
+
+
+def test_borrowing_report_rejects_non_string_dates(
+    borrowing_report_service, admin_user
+):
+    with pytest.raises(ValueError):
+        borrowing_report_service.get_borrowing_report(
+            None,
+            "2026-11-30",
+            admin_user
+        )
+
+    assert borrowing_report_service.repo.called is False
+
+
+def test_controller_get_borrowing_report_success(admin_user):
+    controller = ReportController(admin_user)
+
+    statistics = {
+        "total_borrowings": 25,
+        "total_returns": 20,
+        "borrowings_by_date": [],
+        "returns_by_date": []
+    }
+
+    class FakeService:
+        def get_borrowing_report(
+            self, start_date, end_date, current_user
+        ):
+            assert start_date == "2026-11-01"
+            assert end_date == "2026-11-30"
+            assert current_user == admin_user
+            return statistics
+
+    controller.service = FakeService()
+
+    result = controller.get_borrowing_report(
+        "2026-11-01",
+        "2026-11-30"
+    )
+
+    assert result["success"] is True
+    assert result["data"] == statistics
+    assert result["message"] == (
+        "Retrieved borrowing and returning statistics successfully."
+    )
+
+
+def test_controller_borrowing_report_permission_error(reader_user):
+    controller = ReportController(reader_user)
+
+    class FakeService:
+        def get_borrowing_report(
+            self, start_date, end_date, current_user
+        ):
+            raise PermissionError("Admin permission required.")
+
+    controller.service = FakeService()
+
+    result = controller.get_borrowing_report(
+        "2026-11-01",
+        "2026-11-30"
+    )
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "Admin permission required."
+
+
+def test_controller_borrowing_report_validation_error(admin_user):
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def get_borrowing_report(
+            self, start_date, end_date, current_user
+        ):
+            raise ValueError("Invalid date format.")
+
+    controller.service = FakeService()
+
+    result = controller.get_borrowing_report(
+        "invalid",
+        "2026-11-30"
+    )
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "Invalid date format."
+
+
+def test_controller_borrowing_report_database_error(admin_user):
+    import mysql.connector
+
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def get_borrowing_report(
+            self, start_date, end_date, current_user
+        ):
+            raise mysql.connector.Error("Database details")
+
+    controller.service = FakeService()
+
+    result = controller.get_borrowing_report(
+        "2026-11-01",
+        "2026-11-30"
+    )
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == (
+        "Database error occurred while retrieving borrowing and returning statistics."
+    )
+
+
+def test_controller_borrowing_report_unexpected_error(admin_user):
+    controller = ReportController(admin_user)
+
+    class FakeService:
+        def get_borrowing_report(
+            self, start_date, end_date, current_user
+        ):
+            raise RuntimeError("Internal error details.")
+
+    controller.service = FakeService()
+
+    result = controller.get_borrowing_report(
+        "2026-11-01",
+        "2026-11-30"
+    )
+
+    assert result["success"] is False
+    assert result["data"] is None
+    assert result["message"] == "An unexpected error occurred."
+    assert "Internal error details." not in result["message"]
