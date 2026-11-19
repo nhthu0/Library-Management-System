@@ -1,8 +1,10 @@
+
 from app.database.connection import get_connection
 
 
 class ReportRepository:
 
+    # LMS-46: Book Statistics
     def get_book_statistics(self) -> dict:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
@@ -105,6 +107,7 @@ class ReportRepository:
                 WHERE u.role = 'Reader'
                 """
             )
+
             summary = cursor.fetchone()
 
             cursor.execute(
@@ -119,6 +122,7 @@ class ReportRepository:
                 ORDER BY u.account_status ASC
                 """
             )
+
             statuses = cursor.fetchall()
 
             return {
@@ -134,7 +138,6 @@ class ReportRepository:
             conn.close()
 
     # LMS-48: Borrowing and Returning Statistics
-
     def get_borrowing_report(
         self,
         start_date: str,
@@ -150,9 +153,15 @@ class ReportRepository:
                 SELECT COUNT(*) AS total_borrowings
                 FROM borrowing_records
                 WHERE borrow_date BETWEEN %s AND %s
+                  AND status IN (
+                      'Borrowed',
+                      'ReturnRequested',
+                      'Returned'
+                  )
                 """,
                 (start_date, end_date)
             )
+
             borrowing_summary = cursor.fetchone()
 
             cursor.execute(
@@ -160,11 +169,13 @@ class ReportRepository:
                 SELECT COUNT(*) AS total_returns
                 FROM borrowing_records
                 WHERE return_date IS NOT NULL
-                    AND return_date != ''
-                    AND return_date BETWEEN %s AND %s
+                  AND return_date != ''
+                  AND return_date BETWEEN %s AND %s
+                  AND status = 'Returned'
                 """,
                 (start_date, end_date)
             )
+
             return_summary = cursor.fetchone()
 
             cursor.execute(
@@ -174,11 +185,17 @@ class ReportRepository:
                     COUNT(*) AS total
                 FROM borrowing_records
                 WHERE borrow_date BETWEEN %s AND %s
+                  AND status IN (
+                      'Borrowed',
+                      'ReturnRequested',
+                      'Returned'
+                  )
                 GROUP BY borrow_date
                 ORDER BY borrow_date ASC
                 """,
                 (start_date, end_date)
             )
+
             borrowings_by_date = cursor.fetchall()
 
             cursor.execute(
@@ -188,13 +205,15 @@ class ReportRepository:
                     COUNT(*) AS total
                 FROM borrowing_records
                 WHERE return_date IS NOT NULL
-                    AND return_date != ''
-                    AND return_date BETWEEN %s AND %s
+                  AND return_date != ''
+                  AND return_date BETWEEN %s AND %s
+                  AND status = 'Returned'
                 GROUP BY return_date
                 ORDER BY return_date ASC
                 """,
                 (start_date, end_date)
             )
+
             returns_by_date = cursor.fetchall()
 
             return {
@@ -209,7 +228,6 @@ class ReportRepository:
             conn.close()
 
     # LMS-49: Book Status Statistics
-
     def get_book_status_statistics(self) -> dict:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
@@ -220,9 +238,12 @@ class ReportRepository:
                 SELECT
                     COUNT(
                         CASE
-                            WHEN br.status = 'Borrowed'
-                                AND NULLIF(bd.return_date, '') IS NULL
-                                AND NULLIF(br.return_date, '') IS NULL
+                            WHEN br.status IN (
+                                'Borrowed',
+                                'ReturnRequested'
+                            )
+                            AND NULLIF(bd.return_date, '') IS NULL
+                            AND NULLIF(br.return_date, '') IS NULL
                             THEN 1
                         END
                     ) AS currently_borrowed,
@@ -237,10 +258,13 @@ class ReportRepository:
 
                     COUNT(
                         CASE
-                            WHEN br.status = 'Borrowed'
-                                AND NULLIF(bd.return_date, '') IS NULL
-                                AND NULLIF(br.return_date, '') IS NULL
-                                AND br.due_date < CURDATE()
+                            WHEN br.status IN (
+                                'Borrowed',
+                                'ReturnRequested'
+                            )
+                            AND NULLIF(bd.return_date, '') IS NULL
+                            AND NULLIF(br.return_date, '') IS NULL
+                            AND br.due_date < CURDATE()
                             THEN 1
                         END
                     ) AS overdue
@@ -264,7 +288,6 @@ class ReportRepository:
             conn.close()
 
     # LMS-49: Fine Statistics
-
     def get_fine_statistics(self) -> dict:
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)

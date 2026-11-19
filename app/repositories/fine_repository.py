@@ -13,7 +13,7 @@ class FineRepository:
             cursor.execute(
                 """
                 SELECT borrowingID, readerID, adminID,
-                    due_date, return_date, status
+                       due_date, return_date, status
                 FROM borrowing_records
                 WHERE borrowingID = %s
                 """,
@@ -86,9 +86,16 @@ class FineRepository:
         cursor = conn.cursor(dictionary=True)
 
         try:
+            # Start transaction before acquiring the lock.
+            conn.start_transaction(
+                isolation_level="READ COMMITTED"
+            )
+
+            # Lock the borrowing record to prevent concurrent
+            # fine creation for the same borrowing.
             cursor.execute(
                 """
-                SELECT borrowingID
+                SELECT borrowingID, status
                 FROM borrowing_records
                 WHERE borrowingID = %s
                 FOR UPDATE
@@ -101,6 +108,12 @@ class FineRepository:
             if not borrowing:
                 raise ValueError("Borrowing record not found.")
 
+            if borrowing["status"] != "Returned":
+                raise ValueError(
+                    "Fine can only be created for returned borrowing records."
+                )
+
+            # Check whether a fine already exists.
             cursor.execute(
                 """
                 SELECT fineID
@@ -118,6 +131,7 @@ class FineRepository:
                     "A fine already exists for this borrowing record."
                 )
 
+            # Insert the new fine.
             cursor.execute(
                 """
                 INSERT INTO fines (
@@ -143,6 +157,7 @@ class FineRepository:
             )
 
             fine.fine_id = cursor.lastrowid
+
             conn.commit()
 
             return fine
@@ -233,6 +248,10 @@ class FineRepository:
         cursor = conn.cursor(dictionary=True)
 
         try:
+            conn.start_transaction(
+                isolation_level="READ COMMITTED"
+            )
+
             cursor.execute(
                 """
                 SELECT
@@ -254,10 +273,14 @@ class FineRepository:
                 return None
 
             if fine["payment_status"] == "Paid":
-                raise ValueError("Fine has already been paid.")
+                raise ValueError(
+                    "Fine has already been paid."
+                )
 
             if fine["payment_status"] != "Unpaid":
-                raise ValueError("Invalid fine payment status.")
+                raise ValueError(
+                    "Invalid fine payment status."
+                )
 
             cursor.execute(
                 """

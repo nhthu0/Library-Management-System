@@ -1,6 +1,11 @@
+
+import logging
 import mysql.connector
 
 from app.services.report_service import ReportService
+
+
+logger = logging.getLogger(__name__)
 
 
 class ReportController:
@@ -26,6 +31,7 @@ class ReportController:
             "data": None
         }
 
+    # LMS-46: Book Statistics
     def get_statistics(self) -> dict:
         try:
             statistics = self.service.get_statistics(
@@ -41,11 +47,17 @@ class ReportController:
             return self._error(str(error))
 
         except mysql.connector.Error:
+            logger.exception(
+                "Database error in ReportController.get_statistics."
+            )
             return self._error(
                 "Database error occurred while retrieving statistics."
             )
 
         except Exception:
+            logger.exception(
+                "Unexpected error in ReportController.get_statistics."
+            )
             return self._error(
                 "An unexpected error occurred."
             )
@@ -56,23 +68,32 @@ class ReportController:
             statistics = self.service.get_reader_statistics(
                 self.current_user
             )
+
             return self._success(
                 "Retrieved reader statistics successfully.",
                 statistics
             )
+
         except (ValueError, PermissionError) as error:
             return self._error(str(error))
+
         except mysql.connector.Error:
+            logger.exception(
+                "Database error in ReportController.get_reader_statistics."
+            )
             return self._error(
                 "Database error occurred while retrieving reader statistics."
             )
+
         except Exception:
+            logger.exception(
+                "Unexpected error in ReportController.get_reader_statistics."
+            )
             return self._error(
                 "An unexpected error occurred."
             )
 
     # LMS-48: Borrowing and Returning Statistics
-
     def get_borrowing_report(
         self,
         start_date: str,
@@ -94,61 +115,84 @@ class ReportController:
             return self._error(str(error))
 
         except mysql.connector.Error:
+            logger.exception(
+                "Database error in ReportController.get_borrowing_report."
+            )
             return self._error(
                 "Database error occurred while retrieving borrowing and returning statistics."
             )
 
         except Exception:
+            logger.exception(
+                "Unexpected error in ReportController.get_borrowing_report."
+            )
             return self._error(
                 "An unexpected error occurred."
             )
 
     # LMS-49: Book Status Statistics
-
     def get_book_status_statistics(self) -> dict:
         try:
             statistics = self.service.get_book_status_statistics(
                 self.current_user
             )
+
             return self._success(
                 "Retrieved book status statistics successfully.",
                 statistics
             )
+
         except (ValueError, PermissionError) as error:
             return self._error(str(error))
+
         except mysql.connector.Error:
+            logger.exception(
+                "Database error in ReportController.get_book_status_statistics."
+            )
             return self._error(
                 "Database error occurred while retrieving book status statistics."
             )
+
         except Exception:
+            logger.exception(
+                "Unexpected error in ReportController.get_book_status_statistics."
+            )
             return self._error(
                 "An unexpected error occurred."
             )
 
     # LMS-49: Fine Statistics
-
     def get_fine_statistics(self) -> dict:
         try:
             statistics = self.service.get_fine_statistics(
                 self.current_user
             )
+
             return self._success(
                 "Retrieved fine statistics successfully.",
                 statistics
             )
+
         except (ValueError, PermissionError) as error:
             return self._error(str(error))
+
         except mysql.connector.Error:
+            logger.exception(
+                "Database error in ReportController.get_fine_statistics."
+            )
             return self._error(
                 "Database error occurred while retrieving fine statistics."
             )
+
         except Exception:
+            logger.exception(
+                "Unexpected error in ReportController.get_fine_statistics."
+            )
             return self._error(
                 "An unexpected error occurred."
             )
 
     # LMS-49: Export Report to CSV
-
     def export_report(
         self,
         report_type: str,
@@ -174,16 +218,25 @@ class ReportController:
             return self._error(str(error))
 
         except OSError:
+            logger.exception(
+                "File export error in ReportController.export_report."
+            )
             return self._error(
                 "Unable to export report to CSV."
             )
 
         except mysql.connector.Error:
+            logger.exception(
+                "Database error in ReportController.export_report."
+            )
             return self._error(
                 "Database error occurred while exporting report."
             )
 
         except Exception:
+            logger.exception(
+                "Unexpected error in ReportController.export_report."
+            )
             return self._error(
                 "An unexpected error occurred."
             )
