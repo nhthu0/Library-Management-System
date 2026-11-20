@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import customtkinter as ctk
+from tkinter import messagebox
 from PIL import Image
 
 from app.config.theme import WHITE
@@ -35,7 +36,10 @@ class BorrowRequestView(ctk.CTkFrame):
         on_navigate=None,
         on_search_readers=None,
         on_search_books=None,
-        on_confirm_borrow=None
+        on_confirm_borrow=None,
+        on_request_borrow=None,
+        on_load_history=None,
+        selected_books=None
     ):
         super().__init__(
             master,
@@ -46,6 +50,8 @@ class BorrowRequestView(ctk.CTkFrame):
         self.on_search_readers = on_search_readers
         self.on_search_books = on_search_books
         self.on_confirm_borrow = on_confirm_borrow
+        self.on_request_borrow = on_request_borrow
+        self.on_load_history = on_load_history
 
         self.assets = (
             Path(__file__).resolve().parents[1]
@@ -58,7 +64,7 @@ class BorrowRequestView(ctk.CTkFrame):
         self.books = []
 
         self.selected_reader = None
-        self.selected_books = []
+        self.selected_books = selected_books if selected_books is not None else []
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -78,8 +84,13 @@ class BorrowRequestView(ctk.CTkFrame):
             pady=20
         )
 
-        self.main.grid_columnconfigure(0, weight=1)
-        self.main.grid_rowconfigure(2, weight=1)
+        if self.on_request_borrow is not None:
+            self.main.grid_columnconfigure(0, weight=3, uniform="borrow")
+            self.main.grid_columnconfigure(1, weight=2, uniform="borrow")
+            self.main.grid_rowconfigure(1, weight=1)
+        else:
+            self.main.grid_columnconfigure(0, weight=1)
+            self.main.grid_rowconfigure(2, weight=1)
 
         self.build_header()
         self.build_search_section()
@@ -272,6 +283,16 @@ class BorrowRequestView(ctk.CTkFrame):
             ("statistics.png", "Statistics")
         ]
 
+        if self.on_request_borrow is not None:
+            menus = [
+                ("dashboard.png", "Dashboard"),
+                ("booklist.png", "Browse Books"),
+                ("borrow.png", "Borrow books"),
+                ("booklist.png", "Return Books"),
+                ("history.png", "Borrow Status"),
+                ("history.png", "Borrowing History"),
+            ]
+
         for icon_filename, title in menus:
             active = title == "Borrow books"
 
@@ -426,6 +447,7 @@ class BorrowRequestView(ctk.CTkFrame):
         header.grid(
             row=0,
             column=0,
+            columnspan=2 if self.on_request_borrow is not None else 1,
             sticky="ew",
             pady=(10, 20)
         )
@@ -440,7 +462,8 @@ class BorrowRequestView(ctk.CTkFrame):
 
         self.text(
             header,
-            "Manage book borrowing transactions",
+            "Choose a book and send a borrowing request" if self.on_request_borrow is not None
+            else "Manage book borrowing transactions",
             11,
             MUTED
         ).pack(
@@ -464,6 +487,15 @@ class BorrowRequestView(ctk.CTkFrame):
             sticky="ew",
             pady=(0, 16)
         )
+
+        if self.on_request_borrow is not None:
+            section.grid_configure(sticky="nsew", padx=(0, 12), pady=0)
+            section.grid_columnconfigure(0, weight=1)
+            section.grid_rowconfigure(0, weight=1)
+            self.book_card = self.card(section)
+            self.book_card.grid(row=0, column=0, sticky="nsew")
+            self.build_book_search()
+            return
 
         section.grid_columnconfigure(
             (0, 1),
@@ -660,10 +692,12 @@ class BorrowRequestView(ctk.CTkFrame):
             lambda event: self.search_books()
         )
 
-        self.book_results = ctk.CTkFrame(
-            card,
-            fg_color="transparent"
-        )
+        if self.on_request_borrow is not None:
+            self.book_results = ctk.CTkScrollableFrame(
+                card, height=95, fg_color="transparent"
+            )
+        else:
+            self.book_results = ctk.CTkFrame(card, fg_color="transparent")
 
         self.book_results.pack(
             fill="both",
@@ -964,7 +998,18 @@ class BorrowRequestView(ctk.CTkFrame):
             self.book_entry.get().strip()
         )
 
-        if self.on_search_books:
+        if self.on_request_borrow is not None:
+            if self.on_search_books is None:
+                return
+            result = self.on_search_books(keyword)
+            if not result["success"]:
+                messagebox.showerror("Book search", result["message"], parent=self)
+                return
+            self.set_books([
+                {**book, "code": str(book["book_id"])}
+                for book in result["data"]
+            ])
+        elif self.on_search_books:
             self.on_search_books(keyword)
 
     # ==========================================
@@ -974,9 +1019,10 @@ class BorrowRequestView(ctk.CTkFrame):
     def build_borrowing_list(self):
         card = self.card(self.main)
 
+        reader_mode = self.on_request_borrow is not None
         card.grid(
-            row=2,
-            column=0,
+            row=1 if reader_mode else 2,
+            column=1 if reader_mode else 0,
             sticky="nsew"
         )
 
@@ -1008,16 +1054,10 @@ class BorrowRequestView(ctk.CTkFrame):
         self.borrowing_items = (
             ctk.CTkScrollableFrame(
                 card,
+                height=64,
                 fg_color="transparent",
                 corner_radius=0
             )
-        )
-
-        self.borrowing_items.pack(
-            fill="both",
-            expand=True,
-            padx=15,
-            pady=(0, 8)
         )
 
         footer = ctk.CTkFrame(
@@ -1026,9 +1066,17 @@ class BorrowRequestView(ctk.CTkFrame):
         )
 
         footer.pack(
+            side="bottom",
             fill="x",
             padx=15,
-            pady=(0, 15)
+            pady=(0, 10)
+        )
+
+        self.borrowing_items.pack(
+            fill="both",
+            expand=True,
+            padx=15,
+            pady=(0, 6)
         )
 
         ctk.CTkFrame(
@@ -1037,7 +1085,7 @@ class BorrowRequestView(ctk.CTkFrame):
             fg_color="#EDF0EE"
         ).pack(
             fill="x",
-            pady=(0, 14)
+            pady=(0, 6)
         )
 
         self.confirm_button = ctk.CTkButton(
@@ -1082,13 +1130,19 @@ class BorrowRequestView(ctk.CTkFrame):
         ) <= 0:
             return
 
+        if self.on_request_borrow is not None:
+            if len(self.selected_books) >= 3:
+                messagebox.showinfo("Borrow books", "You can select up to 3 books.", parent=self)
+                return
+            book = {**book, "requested_quantity": 1}
+
         self.selected_books.append(book)
 
         self.render_borrowing_list()
         self.render_books()
 
     def remove_book(self, code):
-        self.selected_books = [
+        self.selected_books[:] = [
             book
             for book in self.selected_books
             if str(
@@ -1187,6 +1241,16 @@ class BorrowRequestView(ctk.CTkFrame):
                 padx=12
             )
 
+            if self.on_request_borrow is not None:
+                maximum = min(3, book["available_quantity"])
+                quantity = ctk.CTkOptionMenu(
+                    row, width=60, values=[str(value) for value in range(1, maximum + 1)],
+                    command=lambda value, item=book: item.update(requested_quantity=int(value))
+                )
+                quantity.set(str(book["requested_quantity"]))
+                quantity.pack(side="right", padx=(0, 8))
+                self.text(row, "Quantity", 11, MUTED).pack(side="right")
+
         self.update_confirm_button()
 
     # ==========================================
@@ -1197,6 +1261,13 @@ class BorrowRequestView(ctk.CTkFrame):
         count = len(
             self.selected_books
         )
+
+        if self.on_request_borrow is not None:
+            self.confirm_button.configure(
+                text="Send borrowing requests",
+                state="normal" if count else "disabled"
+            )
+            return
 
         self.confirm_button.configure(
             text=(
@@ -1219,6 +1290,52 @@ class BorrowRequestView(ctk.CTkFrame):
         )
 
     def confirm_borrowing(self):
+        if self.on_request_borrow is not None:
+            if not self.selected_books:
+                return
+            total = sum(book["requested_quantity"] for book in self.selected_books)
+            if total > 3:
+                messagebox.showerror(
+                    "Borrow books", "Select a total of at most 3 copies.", parent=self
+                )
+                return
+
+            if self.on_load_history is not None:
+                history = self.on_load_history()
+                if not history["success"]:
+                    messagebox.showerror("Borrow books", history["message"], parent=self)
+                    return
+                active = sum(
+                    row["quantity"] - row["returned_quantity"]
+                    for row in history["data"]
+                    if row["status"] in ("Borrowed", "ReturnRequested")
+                )
+                if active + total > 3:
+                    messagebox.showerror(
+                        "Borrow books",
+                        f"You already have {active} active copies. You can request at most {max(0, 3 - active)} more.",
+                        parent=self
+                    )
+                    return
+
+            remaining = []
+            messages = []
+            for book in self.selected_books:
+                result = self.on_request_borrow(book["book_id"], book["requested_quantity"])
+                if not result["success"]:
+                    remaining.append(book)
+                status = "Pending admin approval" if result["success"] else result["message"]
+                messages.append(f"{book['title']}: {status}")
+
+            self.selected_books[:] = remaining
+            self.render_borrowing_list()
+            self.render_books()
+            dialog = messagebox.showwarning if remaining else messagebox.showinfo
+            dialog("Borrow books", "\n".join(messages), parent=self)
+            if not remaining and self.on_navigate is not None:
+                self.navigate("Borrow Status")
+            return
+
         if (
             self.selected_reader is None
             or not self.selected_books

@@ -26,13 +26,15 @@ class BorrowApprovalView(ctk.CTkFrame):
         master,
         on_navigate=None,
         on_approve=None,
-        on_reject=None
+        on_reject=None,
+        on_refresh=None
     ):
         super().__init__(master, fg_color=BG)
 
         self.on_navigate = on_navigate
         self.on_approve = on_approve
         self.on_reject = on_reject
+        self.on_refresh = on_refresh
 
         self.requests = []
         self.filtered_requests = []
@@ -290,6 +292,9 @@ class BorrowApprovalView(ctk.CTkFrame):
             padx=25,
             pady=(24, 20)
         )
+
+        if self.on_refresh is not None:
+            ctk.CTkButton(header, text="Refresh", width=100, command=self.on_refresh).pack(side="right")
 
         self.label(
             header,

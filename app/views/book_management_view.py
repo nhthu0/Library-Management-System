@@ -2,8 +2,10 @@
 import customtkinter as ctk
 from pathlib import Path
 from PIL import Image
+from tkinter import messagebox
 
 from app.config.theme import BG_GREEN, WHITE
+
 
 BG = "#F5F7F8"
 TEXT = "#20312C"
@@ -12,13 +14,21 @@ BORDER = "#E1E9E5"
 GREEN = "#168452"
 LIGHT_GREEN = "#D8EED3"
 
+
 class BookManagementView(ctk.CTkFrame):
 
-    def __init__(self, master, on_navigate=None, on_logout=None):
+    def __init__(
+        self,
+        master,
+        on_navigate=None,
+        on_logout=None,
+        controller=None
+    ):
         super().__init__(master, fg_color=BG)
 
         self.on_navigate = on_navigate
         self.on_logout = on_logout
+        self.controller = controller
 
         self.assets = Path(__file__).resolve().parents[1] / "assets"
         self.menu_icons = {}
@@ -43,9 +53,7 @@ class BookManagementView(ctk.CTkFrame):
         self.build_search()
         self.build_book_list()
 
-    # ==================================================
-    # COMMON COMPONENTS
-    # ==================================================
+        self.refresh_books()
 
     def label(
         self,
@@ -104,6 +112,7 @@ class BookManagementView(ctk.CTkFrame):
             dark_image=tinted,
             size=(20, 20)
         )
+
     def create_dropdown(
         self,
         parent,
@@ -127,6 +136,7 @@ class BookManagementView(ctk.CTkFrame):
 
         selected = ctk.StringVar(value=default)
         current_values = list(values)
+
         import tkinter as tk
 
         menu = tk.Menu(
@@ -158,7 +168,6 @@ class BookManagementView(ctk.CTkFrame):
 
         def open_menu():
             rebuild_menu()
-
             container.update_idletasks()
 
             x = container.winfo_rootx()
@@ -509,10 +518,9 @@ class BookManagementView(ctk.CTkFrame):
         )
 
         self.search_entry.bind(
-            "<KeyRelease>",
+            "<Return>",
             lambda event: self.render_books()
-        )
-
+         )
         # CATEGORY FILTER ▼
         self.category_filter = self.create_dropdown(
             filters,
@@ -639,8 +647,8 @@ class BookManagementView(ctk.CTkFrame):
             if (
                 not query
                 or any(
-                    query in str(book.get(key, "")).lower()
-                    for key in ("code", "title", "author")
+                    query == str(book.get(key, "")).strip().lower()
+                    for key in ("book_id", "title", "author")
                 )
             )
             and (
@@ -674,7 +682,7 @@ class BookManagementView(ctk.CTkFrame):
 
         for row_index, book in enumerate(filtered, start=1):
             fields = [
-                "code",
+                "book_id",
                 "title",
                 "author",
                 "category",
@@ -739,6 +747,23 @@ class BookManagementView(ctk.CTkFrame):
                     padx=2
                 )
 
+    def refresh_books(self):
+        if self.controller is None:
+            return
+
+        result = self.controller.get_all_books()
+
+        if not result["success"]:
+            from tkinter import messagebox
+
+            messagebox.showerror(
+                "Book Management",
+                result["message"]
+            )
+            return
+
+        self.update_books(result["data"])
+
     def update_books(self, books):
         # Dùng khi kết nối controller sau này
         self.books = list(books)
@@ -767,8 +792,8 @@ class BookManagementView(ctk.CTkFrame):
         self,
         title,
         subtitle,
-        width=430,
-        height=520
+        width=650,
+        height=750
     ):
         if (
             self.dialog is not None
@@ -856,6 +881,82 @@ class BookManagementView(ctk.CTkFrame):
     # ADD / EDIT / VIEW BOOK
     # ==================================================
 
+    def save_book(self, mode, book, entries):
+        if self.controller is None:
+            messagebox.showerror(
+                "Error",
+                "Book controller is not connected."
+            )
+            return
+
+        try:
+            title = entries["title"].get().strip()
+            author = entries["author"].get().strip()
+            category = entries["category"].get()
+            publisher = entries["publisher"].get().strip()
+            year_text = entries["publication_year"].get().strip()
+            quantity_text = entries["quantity"].get().strip()
+
+            if not title or not author:
+                raise ValueError(
+                    "Book title and author cannot be empty."
+                )
+
+            if category == "Select category":
+                raise ValueError("Please select a category.")
+
+            quantity = int(quantity_text)
+
+            if quantity < 0:
+                raise ValueError("Quantity cannot be negative.")
+
+            publication_year = (
+                int(year_text) if year_text else None
+            )
+
+            if publication_year is not None and not (
+                0 < publication_year <= 9999
+            ):
+                raise ValueError("Invalid publication year.")
+
+            book_data = {
+                "title": title,
+                "author": author,
+                "category": category,
+                "publisher": publisher or None,
+                "publication_year": publication_year,
+                "quantity": quantity
+            }
+
+            if mode == "add":
+                result = self.controller.add_book(book_data)
+            else:
+                result = self.controller.update_book(
+                    int(book["book_id"]),
+                    book_data
+                )
+
+            if not result["success"]:
+                messagebox.showerror(
+                    "Book Management",
+                    result["message"]
+                )
+                return
+
+            messagebox.showinfo(
+                "Success",
+                result["message"]
+            )
+
+            self.close_dialog()
+            self.refresh_books()
+
+        except ValueError as error:
+            messagebox.showerror(
+                "Invalid input",
+                str(error)
+            )
+
     def open_book_dialog(self, mode, book=None):
         titles = {
             "add": (
@@ -894,6 +995,8 @@ class BookManagementView(ctk.CTkFrame):
             ("Book title", "title"),
             ("Author", "author"),
             ("Category", "category"),
+            ("Publisher", "publisher"),
+            ("Publication year", "publication_year"),
             ("Quantity", "quantity")
         ]
 
@@ -908,8 +1011,7 @@ class BookManagementView(ctk.CTkFrame):
                 pady=(9, 4)
             )
 
-            if key == "category":
-                # CATEGORY DROPDOWN ▼
+            if key == "category" and mode != "view":
                 control = self.create_dropdown(
                     form,
                     values=[
@@ -928,7 +1030,6 @@ class BookManagementView(ctk.CTkFrame):
                     ),
                     height=37
                 )
-
             else:
                 control = ctk.CTkEntry(
                     form,
@@ -939,16 +1040,15 @@ class BookManagementView(ctk.CTkFrame):
                 )
 
                 if book is not None:
-                    control.insert(
-                        0,
-                        str(book.get(key, ""))
-                    )
+                    value = book.get(key, "")
+                    if value is not None:
+                        control.insert(0, str(value))
+
+                if mode == "view":
+                    control.configure(state="disabled")
 
             control.pack(fill="x")
             entries[key] = control
-
-            if mode == "view" and isinstance(control, ctk.CTkEntry):
-                control.configure(state="disabled")
 
         footer = ctk.CTkFrame(
             window,
@@ -962,11 +1062,7 @@ class BookManagementView(ctk.CTkFrame):
 
         ctk.CTkButton(
             footer,
-            text=(
-                "Close"
-                if mode == "view"
-                else "Cancel"
-            ),
+            text="Close" if mode == "view" else "Cancel",
             width=85,
             height=38,
             fg_color="#E9EFEB",
@@ -979,18 +1075,18 @@ class BookManagementView(ctk.CTkFrame):
         )
 
         if mode != "view":
-            # Chưa kết nối backend nên chưa lưu
             ctk.CTkButton(
                 footer,
-                text=(
-                    "Add book"
-                    if mode == "add"
-                    else "Save changes"
-                ),
+                text="Add book" if mode == "add" else "Save changes",
                 width=110,
                 height=38,
                 fg_color=GREEN,
-                state="disabled"
+                hover_color="#126A43",
+                command=lambda: self.save_book(
+                    mode,
+                    book,
+                    entries
+                )
             ).pack(side="right")
 
     # ==================================================
@@ -1024,8 +1120,9 @@ class BookManagementView(ctk.CTkFrame):
             text="Delete book",
             width=105,
             height=38,
-            fg_color=GREEN,
-            state="disabled"
+            fg_color="#D83F4F",
+            hover_color="#B92F3E",
+            command=lambda: self.confirm_delete_book(book)
         ).pack(side="right")
 
         ctk.CTkButton(
@@ -1042,15 +1139,42 @@ class BookManagementView(ctk.CTkFrame):
             padx=(0, 10)
         )
 
+    def confirm_delete_book(self, book):
+        try:
+            book_id = book.get("book_id")
+
+            if book_id is None:
+                raise ValueError("Book ID not found.")
+
+            result = self.controller.delete_book(int(book_id))
+
+            if not result["success"]:
+                messagebox.showerror(
+                    "Delete Error",
+                    result["message"]
+                )
+                return
+
+            self.close_dialog()
+            self.refresh_books()
+
+            messagebox.showinfo(
+                "Success",
+                "Book deleted successfully."
+            )
+
+        except Exception as error:
+            messagebox.showerror(
+                "Delete Error",
+                str(error)
+            )
+
     # ==================================================
     # NAVIGATION
     # ==================================================
 
     def navigate(self, page_name):
-        if (
-            page_name != "Book Management"
-            and self.on_navigate
-        ):
+        if page_name != "Book Management" and self.on_navigate:
             self.on_navigate(page_name)
 
     def logout(self):

@@ -1,5 +1,5 @@
-
 import customtkinter as ctk
+from tkinter import messagebox
 from pathlib import Path
 from PIL import Image
 
@@ -15,12 +15,14 @@ LIGHT_GREEN = "#78D69B"
 
 
 class BookSearchView(ctk.CTkFrame):
-    """Book Search UI - no backend connection."""
+    """Browse and search the catalog."""
 
-    def __init__(self, master, on_navigate=None):
+    def __init__(self, master, on_navigate=None, controller=None, is_admin=False):
         super().__init__(master, fg_color=BG)
 
         self.on_navigate = on_navigate
+        self.controller = controller
+        self.is_admin = is_admin
         self.assets = Path(__file__).resolve().parents[1] / "assets"
         self.images = []
         self.books = []
@@ -162,6 +164,7 @@ class BookSearchView(ctk.CTkFrame):
 
         menus = [
             ("dashboard", "Dashboard"),
+            ("booklist", "Booklist" if self.is_admin else "Browse Books"),
             ("borrow", "Borrow Books"),
             ("booklist", "Return Books"),
             ("history", "Borrowing History"),
@@ -169,8 +172,11 @@ class BookSearchView(ctk.CTkFrame):
             ("statistics", "Statistics")
         ]
 
+        if self.controller and not self.is_admin:
+            menus = menus[:5]
+
         for icon_name, title in menus:
-            active = title == "Borrow Books"
+            active = title in ("Booklist", "Browse Books")
 
             icon = self.load_icon(
                 icon_name,
@@ -511,7 +517,7 @@ class BookSearchView(ctk.CTkFrame):
 
             title = str(book.get("title", ""))
             author = str(book.get("author", ""))
-            code = str(book.get("code", ""))
+            code = str(book.get("book_id", book.get("code", "")))
             category = str(book.get("category", ""))
 
             self.label(
@@ -534,7 +540,7 @@ class BookSearchView(ctk.CTkFrame):
 
             self.label(
                 info,
-                f"Category: {category}",
+                f"Category: {category} | Available: {book.get('available_quantity', '—')}",
                 11,
                 MUTED
             ).pack(
@@ -544,7 +550,7 @@ class BookSearchView(ctk.CTkFrame):
 
             ctk.CTkButton(
                 row,
-                text="Select",
+                text="Details" if self.controller else "Select",
                 width=95,
                 height=34,
                 fg_color=GREEN,
@@ -560,13 +566,21 @@ class BookSearchView(ctk.CTkFrame):
     # ==========================================
 
     def set_books(self, books):
-        """Receive real book data from controller later."""
         self.books = list(books or [])
         self.filtered_books = list(self.books)
         self.render_books()
 
     def search_books(self):
-        keyword = self.search_entry.get().strip().lower()
+        keyword = self.search_entry.get().strip()
+        if self.controller:
+            result = self.controller.search_books(keyword)
+            if result["success"]:
+                self.set_books(result["data"])
+            else:
+                messagebox.showerror("Book search", result["message"], parent=self.master)
+            return
+
+        keyword = keyword.lower()
 
         if not keyword:
             self.filtered_books = list(self.books)
@@ -587,6 +601,20 @@ class BookSearchView(ctk.CTkFrame):
         self.render_books()
 
     def select_book(self, book):
+        if self.controller:
+            result = self.controller.get_book_by_id(book["book_id"])
+            if not result["success"]:
+                messagebox.showerror("Book details", result["message"], parent=self)
+                return
+            details = result["data"]
+            fields = (
+                ("Book ID", "book_id"), ("Author", "author"), ("Category", "category"),
+                ("Publisher", "publisher"), ("Year", "publication_year"),
+                ("Total copies", "total_quantity"), ("Available copies", "available_quantity"),
+            )
+            text = "\n".join(f"{label}: {details.get(key) if details.get(key) is not None else '—'}" for label, key in fields)
+            messagebox.showinfo(details["title"], text, parent=self)
+            return
         if self.on_navigate:
             self.on_navigate("Borrow Books")
 

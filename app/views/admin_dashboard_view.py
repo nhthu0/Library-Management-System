@@ -12,11 +12,12 @@ BORDER = "#E1E9E5"
 GREEN = "#168452"
 
 class AdminDashboardView(ctk.CTkFrame):
-    def __init__(self, master, on_navigate=None, on_logout=None):
+    def __init__(self, master, on_navigate=None, on_logout=None, statistics=None):
         super().__init__(master, fg_color=PAGE_BG)
 
         self.on_navigate = on_navigate
         self.on_logout = on_logout
+        self.statistics = statistics or {}
         self.logo_image = None
         self.menu_icons = {}
 
@@ -96,11 +97,15 @@ class AdminDashboardView(ctk.CTkFrame):
         # Menu sử dụng 6 icon PNG
         menus = [
             ("dashboard", "Dashboard"),
-            ("borrow", "Borrow Books"),
+            ("borrow", "Borrow Approval"),
             ("booklist", "Booklist"),
             ("history", "History"),
             ("management", "Book Management"),
             ("statistics", "Statistics"),
+            ("management", "Member Management"),
+            ("booklist", "Return Confirmation"),
+            ("history", "Renewal Approval"),
+            ("statistics", "Fine Management"),
         ]
 
         icons_dir = (
@@ -108,6 +113,9 @@ class AdminDashboardView(ctk.CTkFrame):
             / "assets"
             / "icons"
         )
+
+        menu = ctk.CTkScrollableFrame(sidebar, fg_color="transparent", height=180)
+        menu.pack(fill="both", expand=True, padx=(7, 3))
 
         for icon_name, name in menus:
             active = name == "Dashboard"
@@ -139,7 +147,7 @@ class AdminDashboardView(ctk.CTkFrame):
                 self.menu_icons[name] = icon_image
 
             ctk.CTkButton(
-                sidebar,
+                menu,
                 text=name,
                 image=icon_image,
                 compound="left",
@@ -158,11 +166,6 @@ class AdminDashboardView(ctk.CTkFrame):
             ).pack(fill="x", padx=15, pady=4)
 
         # Đẩy phần dưới xuống cuối Sidebar
-        ctk.CTkFrame(
-            sidebar,
-            fg_color="transparent"
-        ).pack(fill="both", expand=True)
-
         help_box = ctk.CTkFrame(
             sidebar,
             fg_color="#416E5D",
@@ -282,14 +285,14 @@ class AdminDashboardView(ctk.CTkFrame):
 
             ctk.CTkLabel(
                 card,
-                text="—",
+                text=str(self.statistics[title]) if self.statistics.get(title) is not None else "—",
                 font=("Segoe UI", 32, "bold"),
                 text_color=TEXT
             ).pack(anchor="w", padx=16)
 
             ctk.CTkLabel(
                 card,
-                text="No data available",
+                text="" if self.statistics.get(title) is not None else "No data available",
                 font=("Segoe UI", 12),
                 text_color=MUTED
             ).pack(
@@ -339,7 +342,7 @@ class AdminDashboardView(ctk.CTkFrame):
         )
         line_canvas.bind(
             "<Configure>",
-            lambda event: self.draw_line_placeholder(line_canvas)
+            lambda event: self.draw_borrowings(line_canvas)
         )
 
         # Biểu đồ trạng thái sách
@@ -353,7 +356,7 @@ class AdminDashboardView(ctk.CTkFrame):
         self.panel_title(
             right,
             "Book Status",
-            "Distribution of library books"
+            "Availability by title"
         )
 
         donut_canvas = tk.Canvas(
@@ -369,10 +372,10 @@ class AdminDashboardView(ctk.CTkFrame):
         )
         donut_canvas.bind(
             "<Configure>",
-            lambda event: self.draw_donut_placeholder(donut_canvas)
+            lambda event: self.draw_book_status(donut_canvas)
         )
 
-    def draw_line_placeholder(self, canvas):
+    def draw_borrowings(self, canvas):
         canvas.delete("all")
 
         w = canvas.winfo_width()
@@ -411,84 +414,60 @@ class AdminDashboardView(ctk.CTkFrame):
                 font=("Segoe UI", 10)
             )
 
-        canvas.create_text(
-            w / 2,
-            h / 2,
-            text="No borrowing data available",
-            fill=MUTED,
-            font=("Segoe UI", 13)
-        )
-
-    def draw_donut_placeholder(self, canvas):
-        canvas.delete("all")
-
-        w = canvas.winfo_width()
-        h = canvas.winfo_height()
-
-        if w < 80:
+        counts = self.statistics.get("chart_months", [])
+        maximum = max(counts, default=0)
+        if not maximum:
+            canvas.create_text(w / 2, h / 2, text="No borrowings this year", fill=MUTED)
             return
 
-        cx, cy = w * 0.32, h * 0.51
-        radius = min(85, h * 0.38, w * 0.23)
+        points = [
+            (left + i * (right - left) / 11, bottom - count * (bottom - top) / maximum)
+            for i, count in enumerate(counts)
+        ]
+        canvas.create_line(*[position for point in points for position in point], fill=GREEN, width=2)
+        for (x, y), count in zip(points, counts):
+            if count:
+                canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill=GREEN, outline="")
+                canvas.create_text(x, y - 10, text=str(count), fill=MUTED)
 
-        canvas.create_oval(
-            cx - radius,
-            cy - radius,
-            cx + radius,
-            cy + radius,
-            fill="#EDF2EF",
-            outline=""
-        )
+    def draw_book_status(self, canvas):
+        canvas.delete("all")
+        width = canvas.winfo_width()
+        if width < 100:
+            return
+
+        values = [
+            ("Available", self.statistics.get("available_titles"), GREEN),
+            ("Unavailable", self.statistics.get("unavailable_titles"), "#D95858"),
+        ]
+        total = sum(count or 0 for _, count, _ in values)
+        center_x, center_y = width * 0.29, canvas.winfo_height() / 2
+        radius = min(78, width * 0.2)
+        box = (center_x - radius, center_y - radius, center_x + radius, center_y + radius)
+        canvas.create_oval(*box, fill="#EDF2EF", outline="")
+        angle = 0
+        for index, (label, count, color) in enumerate(values):
+            if count and total:
+                sweep = 360 * count / total
+                if count == total:
+                    canvas.create_oval(*box, fill=color, outline="")
+                else:
+                    canvas.create_arc(*box, start=angle, extent=sweep, fill=color, outline="")
+                angle += sweep
+            canvas.create_text(
+                width * 0.56, center_y - 20 + index * 40,
+                text=f"{label}: {count if count is not None else '—'}", fill=color, anchor="w"
+            )
 
         inner = radius * 0.64
         canvas.create_oval(
-            cx - inner,
-            cy - inner,
-            cx + inner,
-            cy + inner,
-            fill=WHITE,
-            outline=""
+            center_x - inner, center_y - inner, center_x + inner, center_y + inner,
+            fill=WHITE, outline=""
         )
-
         canvas.create_text(
-            cx,
-            cy - 7,
-            text="—",
-            font=("Segoe UI", 28, "bold"),
-            fill=TEXT
+            center_x, center_y, text=str(total) if values[0][1] is not None else "—",
+            font=("Segoe UI", 23, "bold"), fill=TEXT
         )
-
-        canvas.create_text(
-            cx,
-            cy + 20,
-            text="Total Books",
-            font=("Segoe UI", 11),
-            fill=MUTED
-        )
-
-        label_x = w * 0.61
-
-        for y, label in [
-            (cy - 32, "Available"),
-            (cy + 34, "Borrowed")
-        ]:
-            canvas.create_oval(
-                label_x,
-                y - 5,
-                label_x + 10,
-                y + 5,
-                fill="#D5E2DA",
-                outline=""
-            )
-
-            canvas.create_text(
-                label_x + 18,
-                y,
-                text=f"{label}: —",
-                anchor="w",
-                font=("Segoe UI", 12),
-                fill=MUTED
-            )
 
     # ================= TABLES =================
 
@@ -517,7 +496,11 @@ class AdminDashboardView(ctk.CTkFrame):
         )
         self.empty_table(
             recent,
-            ["Reader", "Book Title", "Date", "Status"]
+            ["Reader", "Book Title", "Date", "Status"],
+            [
+                (row["reader_name"], row["book_title"], row["borrowed_date"], row["status"])
+                for row in self.statistics.get("transactions", [])[:5]
+            ]
         )
 
         overdue = self.create_panel(row)
@@ -533,10 +516,14 @@ class AdminDashboardView(ctk.CTkFrame):
         )
         self.empty_table(
             overdue,
-            ["Reader", "Book Title", "Overdue", "Fine"]
+            ["Reader", "Book Title", "Due Date"],
+            [
+                (row["reader_name"], row["book_title"], row["due_date"])
+                for row in self.statistics.get("transactions", []) if row["status"] == "Overdue"
+            ][:5]
         )
 
-    def empty_table(self, parent, headings):
+    def empty_table(self, parent, headings, rows):
         frame = ctk.CTkFrame(
             parent,
             fg_color="transparent"
@@ -579,6 +566,15 @@ class AdminDashboardView(ctk.CTkFrame):
             columnspan=len(headings),
             sticky="ew"
         )
+
+        for index, values in enumerate(rows, start=2):
+            for column, value in enumerate(values):
+                ctk.CTkLabel(frame, text=value or "—", anchor="w", wraplength=140).grid(
+                    row=index, column=column, sticky="ew", padx=5, pady=6
+                )
+
+        if rows:
+            return
 
         ctk.CTkLabel(
             frame,

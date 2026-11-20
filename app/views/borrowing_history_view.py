@@ -695,16 +695,14 @@ class BorrowingHistoryView(ctk.CTkFrame):
         )
 
         menus = [
-            ("dashboard.png", "Home"),
-            ("borrow.png", "Borrow books"),
-            ("booklist.png", "Return books"),
-            ("history.png", "History"),
-            ("management.png", "Manage books"),
-            ("statistics.png", "Statistics")
+            ("dashboard.png", "Dashboard"),
+            ("borrow.png", "Borrow Books"),
+            ("booklist.png", "Return Books"),
+            ("history.png", "Borrowing History"),
         ]
 
         for filename, title in menus:
-            active = title == "History"
+            active = title == "Borrowing History"
 
             icon = self.load_menu_icon(
                 filename,
@@ -945,7 +943,11 @@ class BorrowingHistoryView(ctk.CTkFrame):
             height=34,
             values=[
                 "All statuses",
+                "Pending",
+                "Approved",
                 "Borrowed",
+                "Rejected",
+                "ReturnRequested",
                 "Returned",
                 "Overdue"
             ],
@@ -1429,6 +1431,8 @@ class BorrowingHistoryView(ctk.CTkFrame):
         status_colors = {
             "returned": (GREEN, GREEN_BG),
             "borrowed": (BLUE, BLUE_BG),
+            "approved": (BLUE, BLUE_BG),
+            "rejected": (RED, RED_BG),
             "overdue": (RED, RED_BG)
         }
 

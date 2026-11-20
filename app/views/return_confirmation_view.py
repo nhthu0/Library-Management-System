@@ -40,7 +40,8 @@ class ReturnConfirmationView(ctk.CTkFrame):
         master,
         on_navigate=None,
         on_return_selected=None,
-        on_return_all=None
+        on_return_all=None,
+        on_refresh=None
     ):
         super().__init__(
             master,
@@ -50,6 +51,7 @@ class ReturnConfirmationView(ctk.CTkFrame):
         self.on_navigate = on_navigate
         self.on_return_selected = on_return_selected
         self.on_return_all = on_return_all
+        self.on_refresh = on_refresh
 
         self.assets = (
             Path(__file__).resolve().parents[1]
@@ -310,7 +312,7 @@ class ReturnConfirmationView(ctk.CTkFrame):
 
         # Real PNG icons
         menus = [
-            ("dashboard.png", "Home"),
+            ("dashboard.png", "Dashboard"),
             ("borrow.png", "Borrow books"),
             ("booklist.png", "Return books"),
             ("history.png", "History"),
@@ -455,9 +457,12 @@ class ReturnConfirmationView(ctk.CTkFrame):
             pady=(10, 20)
         )
 
+        if self.on_refresh is not None:
+            ctk.CTkButton(header, text="Refresh", width=100, command=self.on_refresh).pack(side="right")
+
         self.text(
             header,
-            "Return books",
+            "Return confirmation",
             21,
             TEXT,
             True
@@ -987,7 +992,7 @@ class ReturnConfirmationView(ctk.CTkFrame):
         self.text(
             summary,
             (
-                f"Books: {len(selected_items)}"
+                f"Requests: {len(selected_items)}"
                 f" | Total fine: {fine_text}"
             ),
             11,

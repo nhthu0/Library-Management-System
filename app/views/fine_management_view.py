@@ -224,12 +224,13 @@ class FineManagementView(ctk.CTkFrame):
         ).pack(pady=(2, 26))
 
         menus = [
-            ("dashboard.png", "Home"),
+            ("dashboard.png", "Dashboard"),
             ("borrow.png", "Borrow books"),
             ("booklist.png", "Return books"),
             ("history.png", "History"),
             ("management.png", "Manage books"),
-            ("statistics.png", "Statistics")
+            ("statistics.png", "Statistics"),
+            ("statistics.png", "Fine Payment")
         ]
 
         for filename, name in menus:

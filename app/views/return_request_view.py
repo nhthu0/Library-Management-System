@@ -26,13 +26,15 @@ class ReturnRequestView(ctk.CTkFrame):
         master,
         on_navigate=None,
         on_return_selected=None,
-        on_return_all=None
+        on_return_all=None,
+        on_refresh=None
     ):
         super().__init__(master, fg_color=BG)
 
         self.on_navigate = on_navigate
         self.on_return_selected = on_return_selected
         self.on_return_all = on_return_all
+        self.on_refresh = on_refresh
 
         self.assets = (
             Path(__file__).resolve().parents[1] / "assets"
@@ -223,8 +225,6 @@ class ReturnRequestView(ctk.CTkFrame):
             ("borrow", "Borrow Books"),
             ("booklist", "Return Books"),
             ("history", "Borrowing History"),
-            ("management", "Book Management"),
-            ("statistics", "Statistics")
         ]
 
         for icon_name, title in menus:
@@ -350,6 +350,9 @@ class ReturnRequestView(ctk.CTkFrame):
             pady=(24, 20)
         )
 
+        if self.on_refresh is not None:
+            ctk.CTkButton(header, text="Refresh", width=100, command=self.on_refresh).pack(side="right")
+
         self.label(
             header,
             "Return books",
@@ -360,12 +363,20 @@ class ReturnRequestView(ctk.CTkFrame):
 
         self.label(
             header,
-            "Manage book return transactions",
+            "Select a loan approved by the library to request a return.",
             13,
             MUTED
         ).pack(
             anchor="w",
             pady=(4, 0)
+        )
+
+        self.loan_status_label = self.label(header, "", 12, MUTED)
+        self.loan_status_label.pack(anchor="w", pady=(4, 0))
+
+    def set_pending_counts(self, borrowing, returning):
+        self.loan_status_label.configure(
+            text=f"Awaiting borrow approval: {borrowing}  |  Awaiting return confirmation: {returning}"
         )
 
     # ==========================================
@@ -586,7 +597,7 @@ class ReturnRequestView(ctk.CTkFrame):
 
             self.label(
                 empty,
-                "No transactions found",
+                "No loans available to return",
                 15,
                 MUTED
             ).place(
@@ -597,7 +608,8 @@ class ReturnRequestView(ctk.CTkFrame):
 
             self.label(
                 empty,
-                "Search to display borrowed books",
+                ("No borrowed books match your search." if self.transactions
+                 else "Check Borrow Status for requests awaiting approval."),
                 12,
                 MUTED
             ).place(
@@ -819,7 +831,7 @@ class ReturnRequestView(ctk.CTkFrame):
         self.label(
             summary,
             (
-                f"Books: {len(selected_transactions)}"
+                f"Requests: {len(selected_transactions)}"
                 f"  |  Total fine: {fine_text}"
             ),
             12,

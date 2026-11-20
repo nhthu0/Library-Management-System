@@ -14,11 +14,16 @@ GREEN = "#168452"
 
 
 class ReaderDashboardView(ctk.CTkFrame):
-    def __init__(self, master, on_navigate=None, on_logout=None):
+    def __init__(self, master, on_navigate=None, on_logout=None, transactions=None):
         super().__init__(master, fg_color=BG)
 
         self.on_navigate = on_navigate
         self.on_logout = on_logout
+        self.transactions = transactions or []
+        self.current_borrowings = [
+            row for row in self.transactions
+            if row["status"] in ("Approved", "Overdue", "ReturnRequested")
+        ]
 
         self.assets = Path(__file__).resolve().parents[1] / "assets"
         self.menu_icons = {}
@@ -179,10 +184,18 @@ class ReaderDashboardView(ctk.CTkFrame):
             ("dashboard", "Dashboard"),
             ("booklist", "Browse Books"),
             ("borrow", "Borrow Books"),
-            ("history", "Return Books"),
+            ("booklist", "Return Books"),
             ("history", "Borrowing History"),
+            ("history", "Borrow Status"),
+            ("history", "Return History"),
+            ("history", "Renew Borrowing"),
+            ("history", "Notifications"),
+            ("statistics", "My Fines"),
             ("management", "My Profile")
         ]
+
+        menu = ctk.CTkScrollableFrame(sidebar, fg_color="transparent", height=180)
+        menu.pack(fill="both", expand=True, padx=(7, 3))
 
         for icon_name, name in menus:
             active = name == "Dashboard"
@@ -192,7 +205,7 @@ class ReaderDashboardView(ctk.CTkFrame):
                 self.menu_icons[name] = icon
 
             button = ctk.CTkButton(
-                sidebar,
+                menu,
                 text=name,
                 image=icon,
                 compound="left",
@@ -220,11 +233,6 @@ class ReaderDashboardView(ctk.CTkFrame):
                 padx=15,
                 pady=4
             )
-
-        ctk.CTkFrame(
-            sidebar,
-            fg_color="transparent"
-        ).pack(fill="both", expand=True)
 
         help_box = ctk.CTkFrame(
             sidebar,
@@ -347,10 +355,10 @@ class ReaderDashboardView(ctk.CTkFrame):
         )
 
         statistics = [
-            ("Currently Borrowed", "—", "Maximum 3 books"),
-            ("Pending Requests", "—", "Awaiting approval"),
-            ("Books Returned", "—", "Completed returns"),
-            ("Overdue Books", "—", "Check your due dates")
+            ("Currently Borrowed", sum(row["quantity"] - row["returned_quantity"] for row in self.current_borrowings), "Maximum 3 books"),
+            ("Pending Requests", sum(row["status"] == "Pending" for row in self.transactions), "Awaiting approval"),
+            ("Books Returned", sum(row["returned_quantity"] for row in self.transactions), "Completed returns"),
+            ("Overdue Books", sum(row["quantity"] - row["returned_quantity"] for row in self.current_borrowings if row["status"] == "Overdue"), "Check your due dates")
         ]
 
         for i, (title, value, description) in enumerate(statistics):
@@ -524,18 +532,26 @@ class ReaderDashboardView(ctk.CTkFrame):
             sticky="ew"
         )
 
-        self.create_label(
-            table,
-            "No borrowing records available",
-            13,
-            MUTED,
-            height=155
-        ).grid(
-            row=2,
-            column=0,
-            columnspan=4,
-            sticky="nsew"
-        )
+        for index, record in enumerate(self.current_borrowings[:5], start=2):
+            values = (record["book_title"], record["borrowed_date"], record["due_date"], record["status"])
+            for column, value in enumerate(values):
+                self.create_label(table, value, anchor="w", wraplength=200).grid(
+                    row=index, column=column, sticky="ew", padx=8, pady=6
+                )
+
+        if not self.current_borrowings:
+            self.create_label(
+                table,
+                "No borrowing records available",
+                13,
+                MUTED,
+                height=155
+            ).grid(
+                row=2,
+                column=0,
+                columnspan=4,
+                sticky="nsew"
+            )
 
         footer = ctk.CTkFrame(
             panel,

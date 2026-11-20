@@ -132,9 +132,15 @@ class BorrowingController:
         except Exception:
             return self._error("An unexpected error occurred.")
 
-    def confirm_return(self, borrowing_id: int) -> dict:
+    def get_pending_return_copies(self, borrowing_id):
+        return self._renewal_action(self.service.get_pending_return_copies, "Copies loaded.", borrowing_id)
+
+    def confirm_return(self, borrowing_id: int, return_items=None) -> dict:
         try:
-            data = self.service.confirm_return(borrowing_id, self.current_user)
+            if return_items is None:
+                data = self.service.confirm_return(borrowing_id, self.current_user)
+            else:
+                data = self.service.confirm_return(borrowing_id, self.current_user, return_items)
             return self._success("Book return confirmed successfully.", data)
         except (ValueError, PermissionError) as error:
             return self._error(str(error))
@@ -142,6 +148,23 @@ class BorrowingController:
             return self._error("Unable to confirm the return. Please contact the library administrator.")
         except Exception:
             return self._error("An unexpected error occurred.")
+
+    def _renewal_action(self, action, message, *args):
+        try:
+            return self._success(message, action(*args, self.current_user))
+        except (ValueError, PermissionError) as error:
+            return self._error(str(error))
+        except mysql.connector.Error:
+            return self._error("Unable to process the renewal. Please contact the library.")
+
+    def get_renewal_requests(self):
+        return self._renewal_action(self.service.get_renewal_requests, "Renewal requests loaded.")
+
+    def request_renewal(self, borrowing_id, new_due_date):
+        return self._renewal_action(self.service.request_renewal, "Renewal request submitted.", borrowing_id, new_due_date)
+
+    def decide_renewal(self, borrowing_id, approved):
+        return self._renewal_action(self.service.decide_renewal, "Renewal request processed.", borrowing_id, approved)
 
     def get_all_borrowing_records(self) -> dict:
         try:

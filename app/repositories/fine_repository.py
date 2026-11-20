@@ -1,4 +1,6 @@
 
+from mysql.connector import Error, errorcode
+
 from app.database.connection import get_connection
 from app.models.fine import Fine
 
@@ -281,6 +283,20 @@ class FineRepository:
                 raise ValueError(
                     "Invalid fine payment status."
                 )
+
+            # Lock orders after the fine, matching the online payment service.
+            try:
+                cursor.execute(
+                    "SELECT state FROM fine_momo_orders WHERE fineID = %s FOR UPDATE",
+                    (fine_id,),
+                )
+                order = cursor.fetchone()
+            except Error as error:
+                if error.errno != errorcode.ER_NO_SUCH_TABLE:
+                    raise
+                order = None
+            if order and order["state"] == "Pending":
+                raise ValueError("This fine has a pending MoMo payment. Check its status first.")
 
             cursor.execute(
                 """

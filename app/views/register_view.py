@@ -1,6 +1,5 @@
 
 import re
-from datetime import datetime, date
 
 import customtkinter as ctk
 from PIL import Image, ImageDraw
@@ -17,10 +16,11 @@ from app.config.theme import (
 
 
 class RegisterView(ctk.CTkFrame):
-    def __init__(self, master, on_register=None, on_back=None):
+    def __init__(self, master, on_register=None, on_back=None, admin_mode=False):
         super().__init__(master, fg_color=BG_GREEN)
 
         self.on_register = on_register
+        self.admin_mode = admin_mode
         self.on_back = on_back
 
         self.icon_images = []
@@ -29,17 +29,13 @@ class RegisterView(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # Main container
-        container = ctk.CTkFrame(
+        # Let the form use the full window height and scroll on shorter displays.
+        container = ctk.CTkScrollableFrame(
             self,
-            fg_color="transparent"
+            fg_color=BG_GREEN,
+            corner_radius=0,
         )
-        container.grid(
-            row=0,
-            column=0,
-            padx=20,
-            pady=20
-        )
+        container.grid(row=0, column=0, sticky="nsew", padx=16, pady=8)
 
         # =========================
         # HEADER
@@ -48,7 +44,7 @@ class RegisterView(ctk.CTkFrame):
             container,
             fg_color="transparent"
         )
-        header.pack(pady=(0, 20))
+        header.pack(pady=(4, 12))
 
         self.logo_image = self.create_logo()
 
@@ -122,7 +118,7 @@ class RegisterView(ctk.CTkFrame):
 
         ctk.CTkLabel(
             title_row,
-            text="Register for library membership",
+            text="Create a reader account" if self.admin_mode else "Register for library membership",
             font=("Segoe UI", 15, "bold"),
             text_color=TEXT_DARK
         ).pack(side="left")
@@ -146,96 +142,18 @@ class RegisterView(ctk.CTkFrame):
         )
 
         # =========================
-        # DATE OF BIRTH + GENDER
+        # ACCOUNT DETAILS
         # =========================
+        self.username = self.add_entry(
+            content, label="Username", placeholder="Choose a username", icon="user"
+        )
+
         row = self.create_row(content)
-
-        self.date_of_birth = self.add_entry(
-            row,
-            label="Date of birth",
-            placeholder="DD/MM/YYYY",
-            icon="calendar",
-            column=0
-        )
-
-        gender_box = self.create_column(row, 1)
-
-        self.add_label(gender_box, "Gender")
-
-        gender_border = ctk.CTkFrame(
-            gender_box,
-            fg_color=WHITE,
-            corner_radius=6,
-            border_width=2,
-            border_color="#A7B5AD"
-        )
-        gender_border.pack(fill="x")
-
-        self.gender = ctk.CTkOptionMenu(
-            gender_border,
-            values=[
-                "Select gender",
-                "Male",
-                "Female",
-                "Other"
-            ],
-            height=34,
-            corner_radius=4,
-            fg_color=WHITE,
-            button_color="#E9F0EC",
-            button_hover_color="#D6E5DC",
-            text_color=TEXT_DARK,
-            font=("Segoe UI", 10),
-            dropdown_fg_color=WHITE,
-            dropdown_text_color=TEXT_DARK
-        )
-        self.gender.pack(
-            fill="x",
-            padx=3,
-            pady=3
-        )
-        self.gender.set("Select gender")
-
-        # =========================
-        # NATIONAL ID + PHONE
-        # =========================
-        row = self.create_row(content)
-
-        self.national_id = self.add_entry(
-            row,
-            label="National ID number",
-            placeholder="Enter your national ID number",
-            icon="id",
-            column=0
-        )
-
         self.phone = self.add_entry(
-            row,
-            label="Phone number",
-            placeholder="Enter your phone number",
-            icon="phone",
-            column=1
+            row, label="Phone number", placeholder="Enter your phone number", icon="phone", column=0
         )
-
-        # =========================
-        # EMAIL + ADDRESS
-        # =========================
-        row = self.create_row(content)
-
         self.email = self.add_entry(
-            row,
-            label="Email",
-            placeholder="email@example.com",
-            icon="mail",
-            column=0
-        )
-
-        self.address = self.add_entry(
-            row,
-            label="Contact address",
-            placeholder="Enter your full address",
-            icon="location",
-            column=1
+            row, label="Email", placeholder="email@example.com", icon="mail", column=1
         )
 
         # =========================
@@ -311,31 +229,32 @@ class RegisterView(ctk.CTkFrame):
         # =========================
         # AGREEMENT
         # =========================
-        agree_row = ctk.CTkFrame(
-            content,
-            fg_color="transparent"
-        )
-        agree_row.pack(fill="x")
+        if not self.admin_mode:
+            agree_row = ctk.CTkFrame(
+                content,
+                fg_color="transparent"
+            )
+            agree_row.pack(fill="x")
 
-        ctk.CTkCheckBox(
-            agree_row,
-            text="I have read and agree to the library membership terms",
-            variable=self.agree,
-            font=("Segoe UI", 10),
-            text_color=TEXT_DARK,
-            fg_color=PRIMARY_GREEN,
-            hover_color=PRIMARY_HOVER,
-            border_color="#84968C",
-            checkbox_width=16,
-            checkbox_height=16
-        ).pack(side="left")
+            ctk.CTkCheckBox(
+                agree_row,
+                text="I have read and agree to the library membership terms",
+                variable=self.agree,
+                font=("Segoe UI", 10),
+                text_color=TEXT_DARK,
+                fg_color=PRIMARY_GREEN,
+                hover_color=PRIMARY_HOVER,
+                border_color="#84968C",
+                checkbox_width=16,
+                checkbox_height=16
+            ).pack(side="left")
 
-        ctk.CTkLabel(
-            agree_row,
-            text="*",
-            font=("Segoe UI", 11, "bold"),
-            text_color="#D64545"
-        ).pack(side="left", padx=(3, 0))
+            ctk.CTkLabel(
+                agree_row,
+                text="*",
+                font=("Segoe UI", 11, "bold"),
+                text_color="#D64545"
+            ).pack(side="left", padx=(3, 0))
 
         # Validation message
         self.message = ctk.CTkLabel(
@@ -352,7 +271,7 @@ class RegisterView(ctk.CTkFrame):
         # =========================
         ctk.CTkButton(
             content,
-            text=" Register for membership",
+            text="Create reader" if self.admin_mode else " Register for membership",
             height=37,
             corner_radius=5,
             fg_color=PRIMARY_GREEN,
@@ -373,14 +292,14 @@ class RegisterView(ctk.CTkFrame):
 
         ctk.CTkLabel(
             bottom,
-            text="Already have an account?",
+            text="" if self.admin_mode else "Already have an account?",
             font=("Segoe UI", 10),
             text_color="#7D8996"
         ).pack(side="left")
 
         ctk.CTkButton(
             bottom,
-            text="Sign in",
+            text="Back to members" if self.admin_mode else "Sign in",
             width=48,
             height=24,
             fg_color="transparent",
@@ -685,50 +604,16 @@ class RegisterView(ctk.CTkFrame):
 
     def handle_register(self):
         data = {
+            "username": self.username.get().strip(),
             "full_name": self.full_name.get().strip(),
-            "date_of_birth": self.date_of_birth.get().strip(),
-            "gender": self.gender.get(),
-            "national_id": self.national_id.get().strip(),
             "phone_number": self.phone.get().strip(),
             "email": self.email.get().strip(),
-            "contact_address": self.address.get().strip(),
-            "password": self.password.get()
+            "password": self.password.get(),
         }
-
         confirm = self.confirm_password.get()
 
-        if (
-            not all(data.values())
-            or not confirm
-            or data["gender"] == "Select gender"
-        ):
-            self.show_error(
-                "Please fill in all required fields."
-            )
-            return
-
-        try:
-            dob = datetime.strptime(
-                data["date_of_birth"],
-                "%d/%m/%Y"
-            ).date()
-
-            if dob >= date.today():
-                raise ValueError
-
-        except ValueError:
-            self.show_error(
-                "Please enter a valid date of birth (DD/MM/YYYY)."
-            )
-            return
-
-        if not re.fullmatch(
-            r"\d{12}",
-            data["national_id"]
-        ):
-            self.show_error(
-                "National ID must contain 12 digits."
-            )
+        if not all(data.values()) or not confirm:
+            self.show_error("Please fill in all required fields.")
             return
 
         if not re.fullmatch(
@@ -761,16 +646,11 @@ class RegisterView(ctk.CTkFrame):
             )
             return
 
-        if not self.agree.get():
+        if not self.admin_mode and not self.agree.get():
             self.show_error(
                 "Please agree to the membership terms."
             )
             return
-
-        self.message.configure(
-            text="UI demo only. No account was created.",
-            text_color=PRIMARY_GREEN
-        )
 
         if self.on_register:
             self.on_register(data)

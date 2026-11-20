@@ -4,10 +4,12 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 from tkinter import messagebox
 
-from tkcalendar import DateEntry
+from collections import Counter
+from datetime import date
+
+from app.views.borrowing_history_view import DatePicker
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.patches import Circle
 
 from app.config.theme import WHITE
 
@@ -34,7 +36,14 @@ class ReportsView(ctk.CTkFrame):
         on_navigate=None,
         on_logout=None,
         on_export_pdf=None,
-        on_export_excel=None
+        on_export_excel=None,
+        catalog=None,
+        readers=None,
+        status=None,
+        transactions=None,
+        report_types=None,
+        on_preview=None,
+        on_export_csv=None
     ):
         super().__init__(
             master,
@@ -45,6 +54,9 @@ class ReportsView(ctk.CTkFrame):
         self.on_logout = on_logout
         self.on_export_pdf = on_export_pdf
         self.on_export_excel = on_export_excel
+        self.report_types = report_types or []
+        self.on_preview = on_preview
+        self.on_export_csv = on_export_csv
 
         self.assets = (
             Path(__file__).resolve().parents[1]
@@ -55,6 +67,10 @@ class ReportsView(ctk.CTkFrame):
         self.avatar_image = None
         self.menu_icons = {}
         self.chart_canvases = []
+        self.catalog = catalog or {}
+        self.readers = readers or {}
+        self.status = status or {}
+        self.transactions = transactions or []
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -77,7 +93,16 @@ class ReportsView(ctk.CTkFrame):
 
         self.build_header()
         self.build_statistics()
+        for label, value in {
+            "Total books": self.catalog.get("total_quantity"),
+            "Books on loan": self.status.get("currently_borrowed"),
+            "Active readers": self.readers.get("active_readers"),
+            "Overdue books": self.status.get("overdue"),
+        }.items():
+            if value is not None:
+                self.stat_labels[label].configure(text=value)
         self.build_report_period()
+        self.from_date.set_date(date.today().replace(day=1))
         self.build_charts()
 
     def label(
@@ -464,7 +489,7 @@ class ReportsView(ctk.CTkFrame):
         cards = [
             ("Total books", "#F0F9F3"),
             ("Books on loan", "#EFF4FF"),
-            ("Active borrowers", "#F0FAF4"),
+            ("Active readers", "#F0FAF4"),
             ("Overdue books", "#FFF3F4")
         ]
 
@@ -522,16 +547,6 @@ class ReportsView(ctk.CTkFrame):
                 title
             ] = value_label
 
-            self.label(
-                card,
-                "No data available",
-                11,
-                MUTED
-            ).pack(
-                anchor="w",
-                padx=16,
-                pady=(4, 15)
-            )
     def build_report_period(self):
 
         card = self.panel(
@@ -645,6 +660,16 @@ class ReportsView(ctk.CTkFrame):
             )
         )
 
+        if self.report_types:
+            report_actions = ctk.CTkFrame(card, fg_color="transparent")
+            report_actions.pack(fill="x", padx=18, pady=(0, 8))
+            self.report_type = ctk.CTkOptionMenu(report_actions, values=self.report_types, width=240)
+            self.report_type.pack(side="left", padx=(0, 8))
+            ctk.CTkButton(report_actions, text="View report", command=self.preview_report).pack(side="left", padx=8)
+            ctk.CTkButton(report_actions, text="Export CSV", command=self.export_csv).pack(side="left")
+            self.report_preview = ctk.CTkTextbox(card, height=145, wrap="word", state="disabled")
+            self.report_preview.pack(fill="x", padx=18, pady=(0, 16))
+
         # EXPORT BUTTONS
         export_box = ctk.CTkFrame(
             controls,
@@ -690,29 +715,9 @@ class ReportsView(ctk.CTkFrame):
         parent
     ):
 
-        picker = DateEntry(
-            parent,
-            date_pattern="dd/mm/yyyy",
-            font=("Segoe UI", 12),
-            background=GREEN,
-            foreground="white",
-            headersbackground=GREEN,
-            headersforeground="white",
-            selectbackground=GREEN,
-            selectforeground="white",
-            normalbackground="white",
-            normalforeground=TEXT,
-            weekendbackground="white",
-            weekendforeground=TEXT,
-            borderwidth=1,
-            relief="solid",
-            state="readonly"
-        )
-
-        picker.pack(
-            fill="x",
-            ipady=7
-        )
+        picker = DatePicker(parent)
+        picker.pack(fill="x")
+        picker.set_date(date.today())
 
         return picker
 
@@ -772,7 +777,7 @@ class ReportsView(ctk.CTkFrame):
                 1,
                 1,
                 "Books by category",
-                "Total books across library categories",
+                "Total copies across library categories",
                 "category"
             )
         ]
@@ -856,164 +861,23 @@ class ReportsView(ctk.CTkFrame):
 
         ax.set_facecolor(WHITE)
 
-        # LINE CHART
-        if chart_type == "line":
-
-            months = [
-                "Jan",
-                "Feb",
-                "Mar",
-                "Apr",
-                "May",
-                "Jun",
-                "Jul",
-                "Aug",
-                "Sep",
-                "Oct",
-                "Nov",
-                "Dec"
-            ]
-
-            ax.set_xlim(
-                -0.5,
-                11.5
-            )
-
-            ax.set_ylim(
-                bottom=0
-            )
-
-            ax.set_xticks(
-                range(12)
-            )
-
-            ax.set_xticklabels(
-                months,
-                fontsize=8
-            )
-
-            ax.set_yticks([])
-
-            ax.grid(
-                axis="y",
-                color="#EDF0EF"
-            )
-
-            ax.set_axisbelow(True)
-
-            ax.plot(
-                [],
-                [],
-                color="#19C56B",
-                linewidth=2,
-                label="Loans"
-            )
-
-            ax.plot(
-                [],
-                [],
-                color=BLUE,
-                linewidth=2,
-                label="Returns"
-            )
-
-            ax.legend(
-                loc="lower center",
-                bbox_to_anchor=(
-                    0.5,
-                    -0.27
-                ),
-                ncol=2,
-                frameon=False,
-                fontsize=8
-            )
-
-        # BAR CHART
-        elif chart_type == "bar":
-
-            ax.set_xlim(left=0)
-
-            ax.set_ylim(
-                -0.5,
-                7.5
-            )
-
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-            ax.grid(
-                axis="x",
-                color="#EDF0EF"
-            )
-
-            ax.set_axisbelow(True)
-
-        # PIE CHART PLACEHOLDERS
-        elif chart_type in (
-            "overdue",
-            "category"
-        ):
-
-            ax.set_xlim(
-                -1.2,
-                1.2
-            )
-
-            ax.set_ylim(
-                -1.2,
-                1.2
-            )
-
-            ax.set_aspect(
-                "equal"
-            )
-
+        data = self.chart_data(chart_type)
+        if chart_type == "line" and data:
+            months, loans, returns = data
+            ax.plot(months, [float(value) for value in loans], label="Loans", color=GREEN)
+            ax.plot(months, [float(value) for value in returns], label="Returns", color=BLUE)
+            ax.legend()
+            ax.tick_params(axis="x", labelsize=8)
+        elif chart_type == "bar" and data:
+            labels, counts = zip(*reversed(data))
+            ax.barh([str(label)[:30] for label in labels], [float(count) for count in counts], color=GREEN)
+            ax.tick_params(axis="y", labelsize=8)
+        elif data:
+            labels, counts = zip(*data)
+            ax.pie([float(count) for count in counts], labels=labels, textprops={"fontsize": 8})
+        else:
             ax.axis("off")
-
-            ax.add_patch(
-                Circle(
-                    (0, 0),
-                    0.82,
-                    fill=False,
-                    edgecolor=BORDER,
-                    linewidth=2
-                )
-            )
-
-        if chart_type in (
-            "line",
-            "bar"
-        ):
-
-            for spine in (
-                ax.spines.values()
-            ):
-                spine.set_visible(
-                    False
-                )
-
-            ax.tick_params(
-                axis="both",
-                length=0,
-                labelcolor=MUTED
-            )
-
-        # EMPTY STATE
-        ax.text(
-            0.5,
-            0.5,
-            "No data available",
-            transform=ax.transAxes,
-            ha="center",
-            va="center",
-            fontsize=11,
-            color=MUTED,
-            bbox={
-                "facecolor": WHITE,
-                "edgecolor": "none",
-                "alpha": 0.95
-            }
-        )
+            ax.text(0.5, 0.5, "No data available", ha="center", va="center", color=MUTED)
 
         figure.tight_layout(
             pad=1.5
@@ -1045,15 +909,62 @@ class ReportsView(ctk.CTkFrame):
         self.chart_canvases.append(
             canvas
         )
+    def chart_data(self, chart_type):
+        if chart_type == "category":
+            return [
+                (item["category"] or "Uncategorized", item["total_quantity"])
+                for item in self.catalog.get("by_category", []) if item["total_quantity"]
+            ]
+
+        if chart_type == "bar":
+            titles = Counter()
+            for record in self.transactions:
+                if record["status"] not in ("Pending", "Rejected"):
+                    for book in record["books"]:
+                        titles[book["title"]] += book["quantity"]
+            return titles.most_common(8)
+
+        if chart_type == "overdue":
+            groups = Counter()
+            for record in self.transactions:
+                if record["status"] == "Overdue":
+                    due = DatePicker.parse_date(record["due_date"])
+                    if due is not None:
+                        days = (date.today() - due).days
+                        label = "1–7 days" if days <= 7 else "8–30 days" if days <= 30 else "31+ days"
+                        groups[label] += record["quantity"] - record["returned_quantity"]
+            return [(label, count) for label, count in groups.items() if count]
+
+        year = str(date.today().year)
+        loans = Counter(
+            record["borrowed_date"][:7] for record in self.transactions
+            if record["borrowed_date"] and record["status"] not in ("Pending", "Rejected")
+        )
+        returns = Counter(
+            record["returned_date"][:7] for record in self.transactions if record["returned_date"]
+        )
+        if not any(month.startswith(year) for month in loans.keys() | returns.keys()):
+            return None
+        months = [f"{year}-{month:02}" for month in range(1, 13)]
+        return (
+            [date.fromisoformat(month + "-01").strftime("%b") for month in months],
+            [loans[month] for month in months],
+            [returns[month] for month in months],
+        )
+
     def report_period(self):
 
         start = (
-            self.from_date.get_date()
+            DatePicker.parse_date(self.from_date.get())
         )
 
         end = (
-            self.to_date.get_date()
+            DatePicker.parse_date(self.to_date.get())
         )
+
+        if start is None or end is None:
+            messagebox.showerror("Invalid report period", "Enter both dates as DD/MM/YYYY.", parent=self)
+            return None
 
         if start > end:
 
@@ -1065,6 +976,41 @@ class ReportsView(ctk.CTkFrame):
             return None
 
         return start, end
+    def selected_report(self):
+        report_type = self.report_type.get()
+        period = self.report_period() if report_type == "Borrowing and returns" else (None, None)
+        return (report_type, *period) if period is not None else None
+
+    def preview_report(self):
+        selected = self.selected_report()
+        if selected is None:
+            return
+        report = self.on_preview(*selected)
+        if report is None:
+            return
+        lines = []
+        for key, value in report.items():
+            label = key.replace("_", " ").capitalize()
+            if isinstance(value, list):
+                lines.append(label)
+                lines.extend(
+                    "  " + " | ".join(f"{field.replace('_', ' ')}: {cell}" for field, cell in row.items())
+                    for row in value
+                )
+                if not value:
+                    lines.append("  No matching records")
+            else:
+                lines.append(f"{label}: {value}")
+        self.report_preview.configure(state="normal")
+        self.report_preview.delete("1.0", "end")
+        self.report_preview.insert("1.0", "\n".join(lines) or "No matching records")
+        self.report_preview.configure(state="disabled")
+
+    def export_csv(self):
+        selected = self.selected_report()
+        if selected is not None:
+            self.on_export_csv(*selected)
+
     def export_pdf(self):
 
         period = self.report_period()

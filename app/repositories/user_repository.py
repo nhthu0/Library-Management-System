@@ -15,9 +15,9 @@ class UserRepository:
             query = """
                 SELECT u.*, a.adminID, r.readerID,
                        r.expiration_date
-                FROM USERS u
-                LEFT JOIN ADMINS a ON u.userID = a.userID
-                LEFT JOIN READERS r ON u.userID = r.userID
+                FROM users u
+                LEFT JOIN admins a ON u.userID = a.userID
+                LEFT JOIN readers r ON u.userID = r.userID
                 WHERE u.username = %s
             """
             cursor.execute(query, (username,))
@@ -40,9 +40,9 @@ class UserRepository:
                     a.adminID,
                     r.readerID,
                     r.expiration_date
-                FROM USERS u
-                LEFT JOIN ADMINS a ON u.userID = a.userID
-                LEFT JOIN READERS r ON u.userID = r.userID
+                FROM users u
+                LEFT JOIN admins a ON u.userID = a.userID
+                LEFT JOIN readers r ON u.userID = r.userID
                 WHERE u.userID = %s
             """
 
@@ -87,7 +87,7 @@ class UserRepository:
         ]
 
         query = f"""
-            UPDATE USERS
+            UPDATE users
             SET {set_clause}
             WHERE userID = %s
         """

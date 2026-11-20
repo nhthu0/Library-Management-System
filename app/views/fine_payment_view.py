@@ -62,7 +62,9 @@ class FinePaymentView(ctk.CTkFrame):
         self,
         master,
         on_navigate=None,
-        on_payment=None
+        on_payment=None,
+        is_admin=False,
+        on_check_payment=None
     ):
         super().__init__(
             master,
@@ -72,6 +74,9 @@ class FinePaymentView(ctk.CTkFrame):
 
         self.on_navigate = on_navigate
         self.on_payment = on_payment
+        self.on_check_payment = on_check_payment
+        self.payment_busy = False
+        self.is_admin = is_admin
 
         self.assets = (
             Path(__file__).resolve().parents[1]
@@ -271,13 +276,15 @@ class FinePaymentView(ctk.CTkFrame):
             ("borrow.png", "Borrow books"),
             ("booklist.png", "Return books"),
             ("history.png", "Borrowing history"),
-            ("management.png", "Book management"),
-            ("statistics.png", "Statistics")
         ]
+        menus += (
+            [("management.png", "Fine Management"), ("statistics.png", "Fine Payment")]
+            if self.is_admin else [("statistics.png", "My Fines")]
+        )
 
         for filename, title in menus:
 
-            active = title == "Borrowing history"
+            active = title in ("Fine Payment", "My Fines")
 
             icon = self.load_menu_icon(
                 filename,
@@ -848,7 +855,7 @@ class FinePaymentView(ctk.CTkFrame):
 
         self.pay_button = ctk.CTkButton(
             actions,
-            text="Pay fine",
+            text="Record payment" if self.is_admin else "Pay with MoMo Sandbox",
             height=38,
             fg_color=GREEN,
             hover_color=DARK_GREEN,
@@ -862,6 +869,14 @@ class FinePaymentView(ctk.CTkFrame):
             expand=True,
             padx=(10, 0)
         )
+
+        self.check_payment_button = None
+        if self.on_check_payment is not None:
+            self.check_payment_button = ctk.CTkButton(
+                actions, text="Check MoMo status", width=135,
+                state="disabled", command=self.check_payment
+            )
+            self.check_payment_button.pack(side="right", padx=(8, 0))
 
         self.render_details()
 
@@ -898,16 +913,14 @@ class FinePaymentView(ctk.CTkFrame):
                 anchor="center"
             )
 
-            self.pay_button.configure(
-                state="disabled"
-            )
-
+            self.update_payment_buttons(False)
             return
 
         fields = [
             ("Fine ID", fine.get("id", "-")),
             ("Book title", fine.get("book_title", "-")),
             ("Reason", fine.get("reason", "-")),
+            ("Days overdue", fine.get("days_overdue", "-")),
             (
                 "Fine date",
                 format_date(
@@ -958,19 +971,21 @@ class FinePaymentView(ctk.CTkFrame):
                 anchor="w"
             ).pack(side="left")
 
-        can_pay = (
-            str(
-                fine.get("status", "")
-            ).lower().strip() == "unpaid"
-            and self.on_payment is not None
-        )
+        self.update_payment_buttons(str(fine.get("status", "")).strip().lower() == "unpaid")
 
-        self.pay_button.configure(
-            state=(
-                "normal" if can_pay
-                else "disabled"
-            )
-        )
+    def update_payment_buttons(self, unpaid):
+        available = unpaid and not self.payment_busy
+        self.pay_button.configure(state="normal" if available and self.on_payment else "disabled")
+        if self.check_payment_button is not None:
+            self.check_payment_button.configure(state="normal" if available else "disabled")
+
+    def set_payment_busy(self, busy):
+        self.payment_busy = busy
+        self.render_details()
+
+    def check_payment(self):
+        if self.selected_fine is not None and not self.payment_busy:
+            self.on_check_payment(self.selected_fine)
 
     # ==========================================
     # DATA
@@ -978,8 +993,11 @@ class FinePaymentView(ctk.CTkFrame):
 
     def set_fines(self, fines):
 
+        selected = self.selected_fine
         self.fines = list(fines or [])
-        self.selected_fine = None
+        self.selected_fine = next(
+            (fine for fine in self.fines if selected and fine["id"] == selected["id"]), None
+        )
 
         self.apply_filter()
         self.update_summary()
@@ -1031,7 +1049,7 @@ class FinePaymentView(ctk.CTkFrame):
 
         fine = self.selected_fine
 
-        if fine is None or self.on_payment is None:
+        if fine is None or self.on_payment is None or self.payment_busy:
             return
 
         if str(
