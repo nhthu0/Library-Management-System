@@ -869,10 +869,29 @@ class BorrowingService:
             current_user
         )
 
+    def get_pending_return_copies(self, borrowing_id, current_user):
+        user_id = self._require_admin(current_user)
+        conn = self._get_connection()
+        cursor = conn.cursor(dictionary=True)
+        try:
+            self._validate_admin_profile(self.borrowing_repo.get_admin_profile(user_id, conn))
+            cursor.execute(
+                """SELECT d.detailID AS detail_id, b.title
+                   FROM borrowing_details d JOIN books b ON b.bookID = d.bookID
+                   JOIN borrowing_records br ON br.borrowingID = d.borrowingID
+                   WHERE d.borrowingID = %s AND d.return_date IS NULL AND br.status = 'ReturnRequested'
+                   ORDER BY d.detailID""", (borrowing_id,),
+            )
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+
     def confirm_return(
         self,
         borrowing_id: int,
-        current_user
+        current_user,
+        return_items=None
     ) -> dict:
         user_id = self._require_admin(current_user)
 
@@ -954,17 +973,35 @@ class BorrowingService:
                 conn
             )
 
+            outstanding = {row["detail_id"] for row in details if row["return_date"] is None}
+            if len(outstanding) != record["quantity"]:
+                raise ValueError("Return details are invalid.")
+
+            submitted = {}
+            if return_items is not None:
+                if not isinstance(return_items, (list, tuple)) or not return_items:
+                    raise ValueError("Select at least one copy to return.")
+                for item in return_items:
+                    if not isinstance(item, dict):
+                        raise ValueError("Invalid return details.")
+                    detail_id = item.get("detail_id")
+                    if type(detail_id) is not int or detail_id not in outstanding or detail_id in submitted:
+                        raise ValueError("A selected copy is invalid or already returned.")
+                    if not isinstance(item.get("return_date"), str) or not isinstance(item.get("condition"), str):
+                        raise ValueError("Enter a return date and condition for each copy.")
+                    actual_date = date.fromisoformat(item["return_date"])
+                    if not borrowed_on <= actual_date <= today:
+                        raise ValueError("Return date must be between the borrowing date and today.")
+                    condition = item["condition"].strip()
+                    if not condition or len(condition) > 100:
+                        raise ValueError("Enter the book condition (up to 100 characters).")
+                    submitted[detail_id] = (actual_date.isoformat(), condition)
+
             book_ids = [
-                row["book_id"]
-                for row in details
-                if row["return_date"] is None
+                row["book_id"] for row in details
+                if row["return_date"] is None and (return_items is None or row["detail_id"] in submitted)
             ]
-
-            if len(book_ids) != record["quantity"]:
-                raise ValueError(
-                    "Return details are invalid."
-                )
-
+            complete = len(book_ids) == len(outstanding)
             books = self.borrowing_repo.lock_requested_books(
                 book_ids,
                 conn
@@ -979,16 +1016,16 @@ class BorrowingService:
             # Charge every copy by its actual return date,
             # including legacy partial returns.
             amount = 0
+            latest_return = borrowed_on
 
             for row in details:
+                if row["return_date"] is None and return_items is not None and row["detail_id"] not in submitted:
+                    continue
+                value = row["return_date"]
+                if row["detail_id"] in submitted:
+                    value = submitted[row["detail_id"]][0]
                 try:
-                    returned_on = (
-                        today
-                        if row["return_date"] is None
-                        else date.fromisoformat(
-                            str(row["return_date"])
-                        )
-                    )
+                    returned_on = today if value is None else date.fromisoformat(str(value))
                 except ValueError:
                     raise ValueError(
                         "A book return date is invalid."
@@ -999,6 +1036,7 @@ class BorrowingService:
                         "A book return date is invalid."
                     )
 
+                latest_return = max(latest_return, returned_on)
                 amount += self._calculate_overdue_fine(
                     (returned_on - due_date).days,
                     1
@@ -1009,21 +1047,20 @@ class BorrowingService:
                     "The overdue charge exceeds the supported amount."
                 )
 
-            self.borrowing_repo.complete_return(
-                borrowing_id,
-                admin["admin_id"],
-                today.isoformat(),
-                len(book_ids),
-                conn
-            )
+            if return_items is None:
+                self.borrowing_repo.complete_return(
+                    borrowing_id, admin["admin_id"], today.isoformat(), len(book_ids), conn
+                )
+            else:
+                self.borrowing_repo.complete_selected_return(
+                    borrowing_id, admin["admin_id"], submitted, complete, latest_return.isoformat(), conn
+                )
 
-            fine = self.borrowing_repo.save_overdue_fine(
-                borrowing_id,
-                amount,
-                today.isoformat(),
-                admin["admin_id"],
-                conn
-            )
+            fine = {}
+            if complete:
+                fine = self.borrowing_repo.save_overdue_fine(
+                    borrowing_id, amount, latest_return.isoformat(), admin["admin_id"], conn
+                )
 
             self.borrowing_repo.refresh_book_statuses(
                 book_ids,
@@ -1036,12 +1073,12 @@ class BorrowingService:
                 "borrowing_id": borrowing_id,
                 "reader_id": owner["reader_id"],
                 "admin_id": admin["admin_id"],
-                "status": "Returned",
-                "return_date": today.isoformat(),
+                "status": "Returned" if complete else "ReturnRequested",
+                "return_date": latest_return.isoformat() if complete else None,
                 "quantity": len(book_ids),
                 "days_overdue": max(
                     0,
-                    (today - due_date).days
+                    (latest_return - due_date).days
                 ),
                 **fine
             }
@@ -1051,6 +1088,122 @@ class BorrowingService:
             raise
 
         finally:
+            conn.close()
+
+    def get_renewal_requests(self, current_user):
+        is_admin = str((current_user or {}).get("role", "")).upper() == "ADMIN"
+        user_id = self._require_admin(current_user) if is_admin else self._require_reader(current_user)
+        conn = self._get_connection()
+        cursor = conn.cursor(dictionary=True)
+        try:
+            if is_admin:
+                self._validate_admin_profile(self.borrowing_repo.get_admin_profile(user_id, conn))
+            where = "rr.status = 'Pending'" if is_admin else "r.userID = %s"
+            cursor.execute(
+                f"""SELECT rr.borrowingID AS borrowing_id, rr.requested_due_date, rr.status,
+                           br.due_date, u.full_name AS reader_name
+                    FROM renewal_requests rr
+                    JOIN borrowing_records br ON br.borrowingID = rr.borrowingID
+                    JOIN readers r ON r.readerID = br.readerID
+                    JOIN users u ON u.userID = r.userID
+                    WHERE {where} ORDER BY rr.requested_at DESC""",
+                () if is_admin else (user_id,),
+            )
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+
+    def request_renewal(self, borrowing_id, new_due_date, current_user):
+        user_id = self._require_reader(current_user)
+        return self._change_renewal(borrowing_id, user_id, new_due_date=new_due_date)
+
+    def decide_renewal(self, borrowing_id, approved, current_user):
+        user_id = self._require_admin(current_user)
+        if type(approved) is not bool:
+            raise ValueError("Choose whether to approve or reject the request.")
+        return self._change_renewal(borrowing_id, user_id, approved=approved)
+
+    def _change_renewal(self, borrowing_id, user_id, new_due_date=None, approved=None):
+        if type(borrowing_id) is not int or borrowing_id <= 0:
+            raise ValueError("Invalid borrowing ID.")
+        conn = self._get_connection()
+        cursor = conn.cursor(dictionary=True)
+        try:
+            conn.start_transaction(isolation_level="READ COMMITTED")
+            if approved is None:
+                reader_user_id = user_id
+            else:
+                self._validate_admin_profile(self.borrowing_repo.get_admin_profile(user_id, conn))
+                owner = self.borrowing_repo.get_borrowing_owner(borrowing_id, conn)
+                if not owner:
+                    raise ValueError("Loan not found.")
+                reader_user_id = owner["user_id"]
+
+            reader = self.borrowing_repo.get_reader_for_update(reader_user_id, conn)
+            if not reader:
+                raise PermissionError("Reader account not found.")
+            cursor.execute(
+                """SELECT status, due_date, renewal_count FROM borrowing_records
+                    WHERE borrowingID = %s AND readerID = %s FOR UPDATE""",
+                (borrowing_id, reader["reader_id"]),
+            )
+            loan = cursor.fetchone()
+            if not loan:
+                raise ValueError("Loan not found.")
+            cursor.execute(
+                "SELECT requested_due_date, status FROM renewal_requests WHERE borrowingID = %s FOR UPDATE",
+                (borrowing_id,),
+            )
+            request = cursor.fetchone()
+
+            if approved is not False:
+                self._validate_reader_eligibility(reader, self._today())
+                if loan["status"] != "Borrowed" or loan["renewal_count"]:
+                    raise ValueError("Only an active loan that has not been renewed can be extended.")
+                due = date.fromisoformat(str(loan["due_date"]))
+                requested = new_due_date if approved is None else (request or {}).get("requested_due_date")
+                try:
+                    new_due = date.fromisoformat(str(requested))
+                except ValueError:
+                    raise ValueError("Choose a valid new due date.") from None
+                if type(self.loan_period_days) is not int or self.loan_period_days < 1:
+                    raise ValueError("The renewal period has not been configured.")
+                if due < self._today() or not 1 <= (new_due - due).days <= self.loan_period_days:
+                    raise ValueError("The loan must be current and the new due date within the renewal period.")
+
+            if approved is None:
+                if request and request["status"] == "Pending":
+                    raise ValueError("This loan already has a pending renewal request.")
+                cursor.execute(
+                    """INSERT INTO renewal_requests (borrowingID, requested_due_date, status)
+                       VALUES (%s, %s, 'Pending')
+                       ON DUPLICATE KEY UPDATE requested_due_date = %s, status = 'Pending',
+                           requested_at = CURRENT_TIMESTAMP""",
+                    (borrowing_id, new_due.isoformat(), new_due.isoformat()),
+                )
+                status = "Pending"
+            else:
+                if not request or request["status"] != "Pending":
+                    raise ValueError("The renewal request is no longer pending.")
+                status = "Approved" if approved else "Rejected"
+                if approved:
+                    cursor.execute(
+                        """UPDATE borrowing_records SET due_date = %s, renewal_count = renewal_count + 1
+                           WHERE borrowingID = %s""",
+                        (new_due.isoformat(), borrowing_id),
+                    )
+                cursor.execute(
+                    "UPDATE renewal_requests SET status = %s WHERE borrowingID = %s",
+                    (status, borrowing_id),
+                )
+            conn.commit()
+            return {"borrowing_id": borrowing_id, "status": status}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
             conn.close()
 
     def get_all_borrowing_records(

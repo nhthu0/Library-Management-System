@@ -365,6 +365,28 @@ class BorrowingRepository:
             (borrowing_id,), connection, many=True,
         )
 
+    def complete_selected_return(self, borrowing_id, admin_id, submitted, complete, return_date, connection):
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(
+                """UPDATE borrowing_details SET return_date = %s, return_condition = %s
+                   WHERE detailID = %s AND borrowingID = %s AND return_date IS NULL""",
+                [(returned_on, condition, detail_id, borrowing_id)
+                 for detail_id, (returned_on, condition) in submitted.items()],
+            )
+            if cursor.rowcount != len(submitted):
+                raise ValueError("Return details have changed. Please refresh.")
+            if complete:
+                cursor.execute(
+                    """UPDATE borrowing_records SET status = 'Returned', adminID = %s, return_date = %s
+                       WHERE borrowingID = %s AND status = 'ReturnRequested' AND return_date IS NULL""",
+                    (admin_id, return_date, borrowing_id),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError("This return request has changed. Please refresh.")
+        finally:
+            cursor.close()
+
     def complete_return(self, borrowing_id, admin_id, returned_on, quantity, connection):
         cursor = connection.cursor()
         try:
