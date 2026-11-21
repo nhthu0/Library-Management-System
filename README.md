@@ -225,6 +225,24 @@ Reader accounts can be registered from the app.
 
 Sign in with your **username** and password.
 
+### 9.6 Run the desktop app in Docker
+
+Build the image with Docker Desktop running in Linux container mode.
+
+```powershell
+docker build -t library-management .
+```
+
+The app needs an X11 display and a MySQL database that the container can reach.
+On Windows, start an X server that accepts connections from Docker. If it is
+listening on display 0 and MySQL is running on the Windows host, run:
+
+```powershell
+docker run --rm --env-file .env -e DISPLAY=host.docker.internal:0.0 -e DB_HOST=host.docker.internal library-management
+```
+
+Set DB_PORT and the other database settings in .env to match that MySQL instance.
+
 ## 10. Software Testing
 
 ### Tests without a MySQL test database
@@ -299,9 +317,8 @@ The desktop app and its core Admin and Reader workflows are implemented.
 Database migrations, SMTP configuration, and MoMo Sandbox settings are required
 for the corresponding features on a fresh test machine.
 
-The root Dockerfile and docker-compose.yml are placeholders. The current Compose
-configuration runs the isolated test database only. Packaging the desktop app
-and database together remains open under the course deployment requirement.
+The Dockerfile builds the desktop app image. The root docker-compose.yml is a
+placeholder. The separate Compose configuration runs MySQL for integration tests.
 
 The specification targets startup within **60 seconds** and login, book search,
 and borrowing history within **2 seconds** per operation. These are acceptance

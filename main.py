@@ -41,7 +41,10 @@ class LibraryManagementApp(ctk.CTk):
         super().__init__()
 
         self.title("Library Management System")
-        self.state("zoomed")
+        if self.tk.call("tk", "windowingsystem") == "x11":
+            self.attributes("-zoomed", True)
+        else:
+            self.state("zoomed")
         self.minsize(1100, 650)
 
         self.current_view = None
