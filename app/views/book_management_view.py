@@ -2,7 +2,7 @@
 import customtkinter as ctk
 from pathlib import Path
 from PIL import Image
-from tkinter import messagebox
+from tkinter import Misc, messagebox
 
 from app.config.theme import BG_GREEN, WHITE
 
@@ -387,7 +387,7 @@ class BookManagementView(ctk.CTkFrame):
 
         ctk.CTkButton(
             side,
-            text="Administrator",
+            text="Logout",
             anchor="w",
             height=44,
             fg_color="transparent",
@@ -613,13 +613,12 @@ class BookManagementView(ctk.CTkFrame):
             "Actions"
         ]
 
-        weights = [1, 4, 2, 2, 1, 2, 2]
-
-        for index, weight in enumerate(weights):
+        flexible_columns = {1: 2, 2: 1, 3: 1}
+        for col, weight in flexible_columns.items():
             self.table.grid_columnconfigure(
-                index,
+                col,
                 weight=weight,
-                minsize=70
+                uniform="book_details"
             )
 
         for col, title in enumerate(columns):
@@ -691,19 +690,25 @@ class BookManagementView(ctk.CTkFrame):
             ]
 
             for col, field in enumerate(fields):
-                self.label(
+                wraps = col in flexible_columns
+                cell = self.label(
                     self.table,
                     str(book.get(field, "—")),
                     12,
                     GREEN if field == "status" else TEXT,
-                    anchor="w"
-                ).grid(
+                    anchor="w",
+                    justify="left",
+                    wraplength=100 if wraps else 0
+                )
+                cell.grid(
                     row=row_index,
                     column=col,
                     sticky="ew",
                     padx=8,
                     pady=12
                 )
+                if wraps:
+                    Misc.bind(cell, "<Configure>", self.wrap_table_cell, add="+")
 
             actions = ctk.CTkFrame(
                 self.table,
@@ -738,7 +743,7 @@ class BookManagementView(ctk.CTkFrame):
                 ctk.CTkButton(
                     actions,
                     text=title,
-                    width=48,
+                    width=54,
                     height=29,
                     fg_color=color,
                     command=callback
@@ -746,6 +751,13 @@ class BookManagementView(ctk.CTkFrame):
                     side="left",
                     padx=2
                 )
+
+    @staticmethod
+    def wrap_table_cell(event):
+        cell = event.widget
+        width = event.width / ctk.ScalingTracker.get_widget_scaling(cell)
+        if cell.cget("wraplength") != width:
+            cell.configure(wraplength=width)
 
     def refresh_books(self):
         if self.controller is None:

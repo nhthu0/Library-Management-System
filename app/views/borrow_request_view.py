@@ -303,7 +303,7 @@ class BorrowRequestView(ctk.CTkFrame):
 
             menu_row = ctk.CTkFrame(
                 sidebar,
-                height=45 if active else 34,
+                height=34,
                 fg_color=(
                     ACTIVE_GREEN
                     if active
@@ -326,7 +326,7 @@ class BorrowRequestView(ctk.CTkFrame):
                 image=icon,
                 compound="left",
                 anchor="w",
-                height=30 if active else 34,
+                height=34,
                 corner_radius=6,
                 fg_color="transparent",
                 hover_color=(
@@ -357,22 +357,12 @@ class BorrowRequestView(ctk.CTkFrame):
             if active:
                 self.text(
                     menu_row,
-                    "Borrow books",
-                    9,
-                    "#42745C"
-                ).place(
-                    x=37,
-                    y=27
-                )
-
-                self.text(
-                    menu_row,
                     "•",
                     16,
                     "#39765A"
                 ).place(
                     relx=0.94,
-                    rely=0.42,
+                    rely=0.5,
                     anchor="center"
                 )
 
@@ -1174,6 +1164,7 @@ class BorrowRequestView(ctk.CTkFrame):
             )
         )
 
+        reader_mode = self.on_request_borrow is not None
         for book in self.selected_books:
             row = ctk.CTkFrame(
                 self.borrowing_items,
@@ -1188,47 +1179,41 @@ class BorrowRequestView(ctk.CTkFrame):
                 pady=(0, 8)
             )
 
-            info = ctk.CTkFrame(
-                row,
-                fg_color="transparent"
-            )
-
-            info.pack(
-                side="left",
-                fill="x",
-                expand=True,
+            controls = ctk.CTkFrame(row, fg_color="transparent")
+            controls.pack(
+                side="bottom" if reader_mode else "right",
+                anchor="e" if reader_mode else "center",
                 padx=12,
-                pady=10
+                pady=(0, 10) if reader_mode else 0
             )
 
-            self.text(
-                info,
-                str(
-                    book.get("title", "")
-                ),
-                12,
-                TEXT,
-                True
-            ).pack(
-                anchor="w"
-            )
+            info = ctk.CTkFrame(row, fg_color="transparent")
+            info.pack(fill="x", expand=True, padx=12, pady=10)
 
-            self.text(
+            title = self.text(
+                info, str(book.get("title", "")), 12, TEXT, True, justify="left"
+            )
+            title.pack(anchor="w")
+
+            details = self.text(
                 info,
-                (
-                    f"Author: {book.get('author', '')}"
-                    f" | Code: {book.get('code', '')}"
-                ),
+                f"Author: {book.get('author', '')} | Code: {book.get('code', '')}",
                 10,
-                MUTED
-            ).pack(
-                anchor="w",
-                pady=(7, 0)
+                MUTED,
+                justify="left"
             )
+            details.pack(anchor="w", pady=(7, 0))
+
+            def wrap_details(event, labels=(title, details)):
+                width = event.width / ctk.ScalingTracker.get_widget_scaling(event.widget)
+                for label in labels:
+                    label.configure(wraplength=width)
+
+            info.bind("<Configure>", wrap_details, add="+")
 
             ctk.CTkButton(
-                row,
-                text="✕",
+                controls,
+                text="?",
                 width=30,
                 height=30,
                 fg_color=RED,
@@ -1236,20 +1221,17 @@ class BorrowRequestView(ctk.CTkFrame):
                 command=lambda code=book.get("code"): (
                     self.remove_book(code)
                 )
-            ).pack(
-                side="right",
-                padx=12
-            )
+            ).pack(side="right")
 
-            if self.on_request_borrow is not None:
+            if reader_mode:
                 maximum = min(3, book["available_quantity"])
                 quantity = ctk.CTkOptionMenu(
-                    row, width=60, values=[str(value) for value in range(1, maximum + 1)],
+                    controls, width=60, values=[str(value) for value in range(1, maximum + 1)],
                     command=lambda value, item=book: item.update(requested_quantity=int(value))
                 )
                 quantity.set(str(book["requested_quantity"]))
-                quantity.pack(side="right", padx=(0, 8))
-                self.text(row, "Quantity", 11, MUTED).pack(side="right")
+                quantity.pack(side="right", padx=(8, 8))
+                self.text(controls, "Quantity", 11, MUTED).pack(side="right")
 
         self.update_confirm_button()
 
