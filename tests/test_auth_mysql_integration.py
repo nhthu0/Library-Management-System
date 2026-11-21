@@ -15,9 +15,7 @@ from app.services.member_service import MemberService
 def services():
     # Chỉ cho phép kiểm thử trên database riêng.
     if os.getenv("DB_NAME") != "library_management_test":
-        pytest.fail(
-            "Phải đặt DB_NAME=library_management_test trước khi chạy."
-        )
+        pytest.skip("Set DB_NAME=library_management_test to run this MySQL test.")
 
     db = get_connection()
     cursor = db.cursor()

@@ -19,7 +19,6 @@ from app.views.fine_management_view import FineManagementView
 from app.views.fine_payment_view import FinePaymentView
 from app.views.member_management_view import MemberManagementView
 from app.views.profile_view import ProfileView
-from app.views.renewal_view import RenewalView
 from app.views.return_details_dialog import ReturnDetailsDialog
 from app.views.workflow_list_view import WorkflowListView
 
@@ -144,45 +143,6 @@ class LibraryUI:
         refresh()
         return view
 
-    def renewals(self, controller, is_admin):
-        if is_admin:
-            def refresh():
-                rows = self.data(controller.get_renewal_requests(), "Renewals", [])
-                view.show_rows([
-                    (
-                        f"#{row['borrowing_id']}  {row['reader_name']}  |  {row['due_date']} to {row['requested_due_date']}",
-                        [("Approve", lambda key=row["borrowing_id"]: decide(key, True)),
-                         ("Reject", lambda key=row["borrowing_id"]: decide(key, False))],
-                    )
-                    for row in rows
-                ], "No pending renewal requests.")
-
-            def decide(borrowing_id, approved):
-                result = controller.decide_renewal(borrowing_id, approved)
-                if self.data(result, "Renewals") is not None:
-                    refresh()
-
-            view = WorkflowListView(self.app, "Renewal approval",
-                                    lambda: self.app.handle_navigation("Dashboard"), refresh)
-        else:
-            def refresh():
-                requests = self.data(controller.get_renewal_requests(), "Renewals", [])
-                pending = {row["borrowing_id"] for row in requests if row["status"] == "Pending"}
-                view.set_transactions([
-                    row for row in self.history(controller, False)
-                    if row["status"] == "Approved" and not row["renewal_count"] and row["id"] not in pending
-                ])
-
-            def request(row, new_due):
-                result = controller.request_renewal(row["id"], new_due)
-                if self.data(result, "Renewals") is not None:
-                    messagebox.showinfo("Renewals", result["message"], parent=view)
-                    refresh()
-
-            view = RenewalView(self.app, on_navigate=self.app.handle_navigation, on_renew=request)
-        refresh()
-        return view
-
     def notifications(self, controller):
         def refresh():
             rows = []
@@ -194,8 +154,6 @@ class LibraryUI:
                     rows.append((f"{label}: Borrowing request approved. Due {loan['due_date']}.", []))
                 if loan["returned_date"]:
                     rows.append((f"{label}: Return confirmed on {loan['returned_date']}.", []))
-            for request in self.data(controller.get_renewal_requests(), "Renewals", []):
-                rows.append((f"#{request['borrowing_id']}: Renewal {request['status'].lower()} ({request['requested_due_date']}).", []))
             view.show_rows(rows, "No borrowing or return updates yet.")
 
         view = WorkflowListView(self.app, "Notifications",

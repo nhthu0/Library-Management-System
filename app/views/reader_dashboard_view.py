@@ -188,7 +188,6 @@ class ReaderDashboardView(ctk.CTkFrame):
             ("history", "Borrowing History"),
             ("history", "Borrow Status"),
             ("history", "Return History"),
-            ("history", "Renew Borrowing"),
             ("history", "Notifications"),
             ("statistics", "My Fines"),
             ("management", "My Profile")

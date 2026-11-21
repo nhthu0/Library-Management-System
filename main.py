@@ -110,17 +110,18 @@ class LibraryManagementApp(ctk.CTk):
             return
 
         self._outgoing_view = previous
-        slide_offset = 8
+        slide_offset = 3
+        slide_frames = 2
         view.place(x=slide_offset, relwidth=1, relheight=1)
         view.lift()
 
         def slide(frame):
             self._transition_job = None
-            if frame == 7:
+            if frame == slide_frames:
                 self.finish_view_transition()
                 return
 
-            progress = frame / 7
+            progress = frame / slide_frames
             view.place_configure(x=round(slide_offset * (1 - progress) ** 2))
             self._transition_job = self.after(16, slide, frame + 1)
 
@@ -322,9 +323,6 @@ class LibraryManagementApp(ctk.CTk):
             elif page == "statistics" and is_admin:
 
                 view = self.library_ui.reports(ReportsView, self.borrowing_controller())
-
-            elif (page == "renewal approval" and is_admin) or (page == "renew borrowing" and not is_admin):
-                view = self.library_ui.renewals(self.borrowing_controller(), is_admin)
 
             elif page == "notifications" and not is_admin:
                 view = self.library_ui.notifications(self.borrowing_controller())

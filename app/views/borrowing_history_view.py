@@ -1,7 +1,7 @@
 
 from pathlib import Path
 from datetime import date, datetime
-from tkinter import filedialog
+from tkinter import Misc, filedialog
 import calendar
 import csv
 
@@ -1286,44 +1286,36 @@ class BorrowingHistoryView(ctk.CTkFrame):
             start:start + self.page_size
         ]
 
-        widths = [
-            60, 145, 230,
-            115, 115, 115, 100
-        ]
+        columns = (
+            ("ID", 48),
+            ("Reader", 90),
+            ("Book title", 115),
+            ("Borrowed", 95),
+            ("Due date", 95),
+            ("Returned", 95),
+            ("Status", 100)
+        )
+        self.table_container.grid_columnconfigure(1, weight=1)
+        self.table_container.grid_columnconfigure(2, weight=3)
 
-        headers = [
-            "ID",
-            "Reader",
-            "Book title",
-            "Borrowed",
-            "Due date",
-            "Returned",
-            "Status"
-        ]
-
-        header = ctk.CTkFrame(
+        ctk.CTkFrame(
             self.table_container,
             fg_color=PALE_GREEN,
             corner_radius=6,
             height=42
-        )
+        ).grid(row=0, column=0, columnspan=len(columns), sticky="nsew")
 
-        header.pack(fill="x")
-        header.pack_propagate(False)
-
-        for index, title in enumerate(headers):
+        for column, (title, width) in enumerate(columns):
             self.text(
-                header,
+                self.table_container,
                 title,
                 11,
                 TEXT,
                 True,
-                width=widths[index],
+                bg_color=PALE_GREEN,
+                width=width,
                 anchor="w"
-            ).pack(
-                side="left",
-                padx=5
-            )
+            ).grid(row=0, column=column, sticky="ew", padx=5, pady=7)
 
         if not page_items:
             empty = ctk.CTkFrame(
@@ -1331,37 +1323,24 @@ class BorrowingHistoryView(ctk.CTkFrame):
                 fg_color="transparent",
                 height=210
             )
-
-            empty.pack(
-                fill="both",
-                expand=True
-            )
-            empty.pack_propagate(False)
+            empty.grid(row=1, column=0, columnspan=len(columns), sticky="ew")
 
             self.text(
                 empty,
                 "No transactions found",
                 13,
                 MUTED
-            ).place(
-                relx=0.5,
-                rely=0.45,
-                anchor="center"
-            )
+            ).place(relx=0.5, rely=0.45, anchor="center")
 
             self.text(
                 empty,
                 "Apply filters to view borrowing history",
                 11,
                 MUTED
-            ).place(
-                relx=0.5,
-                rely=0.58,
-                anchor="center"
-            )
+            ).place(relx=0.5, rely=0.58, anchor="center")
 
-        for item in page_items:
-            self.render_row(item, widths)
+        for row, item in enumerate(page_items, start=1):
+            self.render_row(item, 2 * row - 1, len(columns))
 
         self.page_label.configure(
             text=(
@@ -1386,16 +1365,7 @@ class BorrowingHistoryView(ctk.CTkFrame):
             )
         )
 
-    def render_row(self, item, widths):
-        row = ctk.CTkFrame(
-            self.table_container,
-            fg_color=WHITE,
-            height=49
-        )
-
-        row.pack(fill="x")
-        row.pack_propagate(False)
-
+    def render_row(self, item, row, column_count):
         status = str(
             item.get("status", "")
         ).strip()
@@ -1415,18 +1385,20 @@ class BorrowingHistoryView(ctk.CTkFrame):
             )
         ]
 
-        for index, value in enumerate(values):
-            self.text(
-                row,
+        for column, value in enumerate(values):
+            wraps = column in (1, 2)
+            cell = self.text(
+                self.table_container,
                 value,
                 10,
                 TEXT,
-                width=widths[index],
-                anchor="w"
-            ).pack(
-                side="left",
-                padx=5
+                anchor="w",
+                justify="left",
+                wraplength=100 if wraps else 0
             )
+            cell.grid(row=row, column=column, sticky="ew", padx=5, pady=10)
+            if wraps:
+                Misc.bind(cell, "<Configure>", self.wrap_table_cell, add="+")
 
         status_colors = {
             "returned": (GREEN, GREEN_BG),
@@ -1441,36 +1413,30 @@ class BorrowingHistoryView(ctk.CTkFrame):
             (MUTED, PAGE_BG)
         )
 
-        badge = ctk.CTkFrame(
-            row,
-            fg_color="transparent",
-            width=widths[6]
-        )
-
-        badge.pack(
-            side="left",
-            padx=5
-        )
-
-        badge.pack_propagate(False)
-
         self.text(
-            badge,
+            self.table_container,
             status or "-",
             10,
             color,
             True,
             fg_color=background,
             corner_radius=5,
-            width=85,
+            width=100,
             height=26
-        ).pack(anchor="w")
+        ).grid(row=row, column=6, sticky="w", padx=5, pady=10)
 
         ctk.CTkFrame(
             self.table_container,
             height=1,
             fg_color=BORDER
-        ).pack(fill="x")
+        ).grid(row=row + 1, column=0, columnspan=column_count, sticky="ew")
+
+    @staticmethod
+    def wrap_table_cell(event):
+        cell = event.widget
+        width = event.width / ctk.ScalingTracker.get_widget_scaling(cell)
+        if cell.cget("wraplength") != width:
+            cell.configure(wraplength=width)
 
     # ==========================================
     # DATA AND FILTERING

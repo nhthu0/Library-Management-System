@@ -39,7 +39,7 @@ The project is developed as part of the Software Engineering course, covering so
 - Sign in and sign out.
 - Find, create, edit, lock, activate, and delete eligible reader accounts.
 - Add, edit, delete, and search books. Assign categories and manage available stock.
-- Approve or reject borrowing and renewal requests.
+- Approve or reject borrowing requests.
 - Confirm returns per copy and record the actual return date and condition.
 - Review borrowing records and overdue fines, and record in-person payments.
 - View statistics and export reports to CSV. Borrowing and return reports also support Excel and PDF.
@@ -49,7 +49,7 @@ The project is developed as part of the Software Engineering course, covering so
 - Register, sign in, and request a password reset code by email.
 - Browse the catalog and search by title, author, book ID, or category. View total and available copies.
 - View and edit personal information.
-- Request loans, returns, and renewals. Track their status in the app.
+- Request loans and returns. Track their status in the app.
 - View borrowing and return history and in-app updates.
 - View overdue days and fines. Pay an eligible fine through MoMo Sandbox and check its status.
 
@@ -57,11 +57,10 @@ The project is developed as part of the Software Engineering course, covering so
 
 1. A reader may have at most **3 copies on loan at a time**. The standard loan period is **30 days**.
 2. The system checks account eligibility and availability before a loan is requested and approved. An Admin approves or rejects the request.
-3. The current renewal workflow allows one approved extension per active, non-overdue loan. The requested extension may be up to 30 days. An Admin reviews the request.
-4. An Admin confirms returns and records each returned copy. A return can be recorded in parts.
-5. A copy returned late incurs **2,000 VND per day**, based on its actual return date. The fine is finalized when the return is complete. The reader can then pay through MoMo Sandbox.
-6. An online payment is recorded as paid after the app verifies it through MoMo. An Admin may record an in-person payment when there is no pending MoMo order.
-7. Administrative screens require the Admin role. Locked or inactive accounts cannot sign in. Accounts with loan history can be locked to preserve their records.
+3. An Admin confirms returns and records each returned copy. A return can be recorded in parts.
+4. A copy returned late incurs **2,000 VND per day**, based on its actual return date. The fine is finalized when the return is complete. The reader can then pay through MoMo Sandbox.
+5. An online payment is recorded as paid after the app verifies it through MoMo. An Admin may record an in-person payment when there is no pending MoMo order.
+6. Administrative screens require the Admin role. Locked or inactive accounts cannot sign in. Accounts with loan history can be locked to preserve their records.
 
 ## 6. Software Architecture
 
@@ -213,8 +212,8 @@ Reader accounts can be registered from the app.
 - **Password reset.** Set SMTP_HOST, SMTP_PORT, and SMTP_FROM in .env.
   Set SMTP_USERNAME and SMTP_PASSWORD when the SMTP server requires login.
   The app connects with STARTTLS.
-- **MoMo Sandbox.** Set MOMO_PARTNER_CODE, MOMO_ACCESS_KEY, MOMO_SECRET_KEY,
-  MOMO_REDIRECT_URL, and MOMO_IPN_URL in .env. The Reader opens **My Fines**,
+- **MoMo Sandbox.** Add MOMO_PARTNER_CODE, MOMO_ACCESS_KEY, MOMO_SECRET_KEY,
+  MOMO_REDIRECT_URL, and MOMO_IPN_URL to .env when using Sandbox. The Reader opens **My Fines**,
   chooses **Pay with MoMo Sandbox**, and uses **Check MoMo status** after checkout.
   The desktop app verifies payment with the MoMo query API. It does not host an IPN server.
 
@@ -256,10 +255,10 @@ The partial-return test named test_partial_returns_keep_their_dates_and_paid_cha
 currently tries to insert two fines for one loan. The schema's unique constraint
 rejects that fixture. Report it as a known test failure when recording results.
 
-For UI verification, test both roles and walk through borrowing approval,
-return confirmation, fines, renewal, and report export. Use isolated records for
-cases that change data. Verify email and Sandbox checkout separately with local
-service settings.
+See the [test plan](docs/test_plan.md) for the 10 smoke test cases and their results.
+The automated suite without MySQL reported **203 passed**. Use test data for
+manual checks that change records. Verify email and Sandbox checkout separately
+with local service settings.
 
 ## 11. Development Stages
 

@@ -104,7 +104,6 @@ class AdminDashboardView(ctk.CTkFrame):
             ("statistics", "Statistics"),
             ("management", "Member Management"),
             ("booklist", "Return Confirmation"),
-            ("history", "Renewal Approval"),
             ("statistics", "Fine Management"),
         ]
 
@@ -191,7 +190,7 @@ class AdminDashboardView(ctk.CTkFrame):
 
         ctk.CTkButton(
             sidebar,
-            text="Administrator",
+            text="Logout",
             anchor="w",
             height=44,
             fg_color="transparent",
